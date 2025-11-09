@@ -2,9 +2,8 @@ import React, { useState, useEffect } from "react";
 import { Button } from "../ui/button";
 
 const BASE_URL = "https://my-transcribe-proxy.onrender.com";
-const RUNPOD_URL = "https://api.runpod.ai/v2/lco4rijwxicjyi/run";
-const RUNPOD_STATUS_BASE = "https://api.runpod.ai/v2/lco4rijwxicjyi/status";
-const RUNPOD_TOKEN = import.meta.env.VITE_RUNPOD_TOKEN;
+const RUNPOD_URL = `${BASE_URL}/transcribe`;
+const RUNPOD_STATUS_BASE = `${BASE_URL}/status`;
 
 export default function UploadBox() {
   const [file, setFile] = useState(null);
@@ -56,7 +55,7 @@ export default function UploadBox() {
   const handleTranscribe = async () => {
     if (!uploadedUrl) return alert("קודם העלה קובץ");
     setIsTranscribing(true);
-    setStatus("📤 שולח בקשה ל-RunPod...");
+    setStatus("📤 שולח בקשה לשרת...");
     setProgress(10);
 
     try {
@@ -64,7 +63,6 @@ export default function UploadBox() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${RUNPOD_TOKEN}`,
         },
         body: JSON.stringify({
           input: {
@@ -105,9 +103,6 @@ export default function UploadBox() {
       try {
         const res = await fetch(`${RUNPOD_STATUS_BASE}/${jobId}`, {
           method: "GET",
-          headers: {
-            Authorization: `Bearer ${RUNPOD_TOKEN}`,
-          },
         });
 
         if (!res.ok) throw new Error("שגיאה בבדיקת סטטוס");
@@ -121,69 +116,54 @@ export default function UploadBox() {
           if (data.status === "IN_PROGRESS") setProgress(70);
 
           if (data.status === "COMPLETED") {
-  clearInterval(interval);
-  setProgress(100);
-  setIsTranscribing(false);
-  setStatus("✅ התמלול הושלם!");
+            clearInterval(interval);
+            setProgress(100);
+            setIsTranscribing(false);
+            setStatus("✅ התמלול הושלם!");
 
-  // 🔍 הדפסה מלאה לעיון
-  console.log("🔍 תגובת RunPod מלאה:", data);
+            console.log("🔍 תגובת שרת מלאה:", data);
 
-  let segments = [];
-  let text = "";
+            let segments = [];
+            let text = "";
 
-  try {
-    // 1️⃣ מבנה רגיל של Whisper / ivrit
-    if (data.output?.transcription?.segments) {
-      segments = data.output.transcription.segments;
-      text = data.output.transcription.text || "";
-    }
+            try {
+              if (data.output?.transcription?.segments) {
+                segments = data.output.transcription.segments;
+                text = data.output.transcription.text || "";
+              } else if (data.output?.segments) {
+                segments = data.output.segments;
+                text = data.output.text || "";
+              } else if (Array.isArray(data.output) && data.output[0]?.result) {
+                const nested = data.output[0].result.flat();
+                segments = nested.map((seg) => ({
+                  speaker: seg.speakers?.[0] || "דובר",
+                  text: seg.text || "",
+                  start: seg.start,
+                  end: seg.end,
+                }));
+                text = segments.map((s) => s.text).join(" ");
+              } else {
+                text =
+                  data.output?.text ||
+                  data.output?.transcription?.text ||
+                  "❌ לא התקבל טקסט תקין";
+                segments = [{ speaker: "דובר", text }];
+              }
+            } catch (err) {
+              console.error("⚠️ שגיאה בפענוח הנתונים:", err);
+              text = "⚠️ שגיאה בפענוח הנתונים";
+              segments = [{ speaker: "דובר", text }];
+            }
 
-    // 2️⃣ מבנה רגיל של Pyannote / WhisperX
-    else if (data.output?.segments) {
-      segments = data.output.segments;
-      text = data.output.text || "";
-    }
+            console.log("📄 Segments שזוהו:", segments);
+            console.log("🗣️ טקסט מאוחד:", text);
 
-    // 3️⃣ מבנה שלך — מערך עם result פנימי
-    else if (Array.isArray(data.output) && data.output[0]?.result) {
-      const nested = data.output[0].result.flat();
-      segments = nested.map((seg) => ({
-        speaker: seg.speakers?.[0] || "דובר",
-        text: seg.text || "",
-        start: seg.start,
-        end: seg.end,
-      }));
-      text = segments.map((s) => s.text).join(" ");
-    }
-
-    // 4️⃣ גיבוי במקרה של טקסט בלבד
-    else {
-      text =
-        data.output?.text ||
-        data.output?.transcription?.text ||
-        "❌ לא התקבל טקסט תקין";
-      segments = [{ speaker: "דובר", text }];
-    }
-  } catch (err) {
-    console.error("⚠️ שגיאה בפענוח הנתונים:", err);
-    text = "⚠️ שגיאה בפענוח הנתונים";
-    segments = [{ speaker: "דובר", text }];
-  }
-
-  // 🔍 הצגה בלוג
-  console.log("📄 Segments שזוהו:", segments);
-  console.log("🗣️ טקסט מאוחד:", text);
-
-  // הצגה במסך
-  if (segments.length > 0) {
-    setSegments(mergeSpeakers(segments));
-  } else {
-    setSegments([{ speaker: "דובר", text }]);
-  }
-}
-
-
+            if (segments.length > 0) {
+              setSegments(mergeSpeakers(segments));
+            } else {
+              setSegments([{ speaker: "דובר", text }]);
+            }
+          }
 
           if (data.status === "FAILED") {
             clearInterval(interval);
@@ -193,7 +173,7 @@ export default function UploadBox() {
         }
       } catch (err) {
         console.error("שגיאה בבדיקת סטטוס:", err);
-        setStatus("⚠️ בעיה בחיבור ל-RunPod");
+        setStatus("⚠️ בעיה בחיבור לשרת");
       }
     }, 6000);
 
