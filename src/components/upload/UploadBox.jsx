@@ -1,8 +1,6 @@
 import React, { useState } from "react";
 import { Button } from "../ui/button";
 
-
-
 export default function UploadBox() {
   const [file, setFile] = useState(null);
   const [progress, setProgress] = useState(0);
@@ -41,18 +39,16 @@ export default function UploadBox() {
     >
       <h2 className="text-xl font-semibold mb-3">העלה קובץ אודיו</h2>
 
-<<<<<<< HEAD
-     <input
-=======
+      {/* שדה קובץ מוסתר */}
       <input
->>>>>>> bc46853 (עדכון קוד מה-Codespace)
-  type="file"
-  accept="audio/*"
-  onChange={handleFileSelect}
-  id="audioInput"
-  style={{ display: "none" }}
-/>
+        type="file"
+        accept="audio/*"
+        onChange={handleFileSelect}
+        id="audioInput"
+        style={{ display: "none" }}
+      />
 
+      {/* תווית בחירת קובץ */}
       <label
         htmlFor="audioInput"
         className="cursor-pointer text-blue-600 underline"
