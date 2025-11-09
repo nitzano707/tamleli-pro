@@ -39,13 +39,14 @@ export default function UploadBox() {
     >
       <h2 className="text-xl font-semibold mb-3">העלה קובץ אודיו</h2>
 
-      <input
-        type="file"
-        accept="audio/*"
-        onChange={handleFileSelect}
-        className="hidden"
-        id="audioInput"
-      />
+     <input
+  type="file"
+  accept="audio/*"
+  onChange={handleFileSelect}
+  id="audioInput"
+  style={{ display: "none" }}
+/>
+
       <label
         htmlFor="audioInput"
         className="cursor-pointer text-blue-600 underline"
