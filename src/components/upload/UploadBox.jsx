@@ -1,10 +1,16 @@
 import React, { useState } from "react";
 import { Button } from "../ui/button";
 
+// 🔗 כתובות בסיס
+const BASE_URL = "https://my-transcribe-proxy.onrender.com"; // Proxy ב-Render
+const RUNPOD_URL = "https://api.runpod.ai/v2/lco4rijjwxicjyjl/run"; // Endpoint שלך ב-RunPod
+const RUNPOD_TOKEN = "<הכנס כאן את ה-API Key שלך מ-RunPod>";
+
 export default function UploadBox() {
   const [file, setFile] = useState(null);
-  const [progress, setProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadedUrl, setUploadedUrl] = useState("");
+  const [transcript, setTranscript] = useState("");
 
   const handleFileSelect = (e) => {
     const selected = e.target.files?.[0];
@@ -17,59 +23,32 @@ export default function UploadBox() {
     if (dropped) setFile(dropped);
   };
 
+  // העלאת הקובץ ל-Render
   const handleUpload = async () => {
     if (!file) return alert("בחר קובץ קודם");
     setIsUploading(true);
 
-    // הדמיית טעינה
-    for (let i = 0; i <= 100; i += 5) {
-      await new Promise((r) => setTimeout(r, 50));
-      setProgress(i);
-    }
+    const formData = new FormData();
+    formData.append("file", file);
 
-    setIsUploading(false);
-    alert("✅ ההעלאה הושלמה (מדומה)");
+    try {
+      const response = await fetch(`${BASE_URL}/upload`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error("שגיאה בשליחת הקובץ");
+      const data = await response.json();
+
+      setUploadedUrl(data.url);
+      alert("✅ הקובץ הועלה בהצלחה!");
+    } catch (error) {
+      console.error("❌ שגיאה בהעלאה:", error);
+      alert("שגיאה בהעלאה, נסה שוב");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
-  return (
-    <div
-      onDrop={handleDrop}
-      onDragOver={(e) => e.preventDefault()}
-      className="border-2 border-dashed border-gray-400 rounded-2xl p-10 text-center bg-gray-50 hover:bg-gray-100 transition-colors w-full max-w-lg"
-    >
-      <h2 className="text-xl font-semibold mb-3">העלה קובץ אודיו</h2>
-
-      {/* שדה קובץ מוסתר */}
-      <input
-        type="file"
-        accept="audio/*"
-        onChange={handleFileSelect}
-        id="audioInput"
-        style={{ display: "none" }}
-      />
-
-      {/* תווית בחירת קובץ */}
-      <label
-        htmlFor="audioInput"
-        className="cursor-pointer text-blue-600 underline"
-      >
-        בחר קובץ מהמחשב
-      </label>
-
-      {file && <p className="mt-3 text-gray-700">{file.name}</p>}
-
-      {isUploading ? (
-        <div className="w-full bg-gray-200 rounded-full h-3 mt-4">
-          <div
-            className="bg-blue-600 h-3 rounded-full transition-all"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-      ) : (
-        <Button onClick={handleUpload} className="mt-4">
-          העלה
-        </Button>
-      )}
-    </div>
-  );
-}
+  // שליחה ל-RunPod לקבלת תמלול
+  const handleTransc
