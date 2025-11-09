@@ -18,7 +18,6 @@ export default function UploadBox() {
   const [audioUrl, setAudioUrl] = useState("");
 
   const handleFileSelect = (e) => setFile(e.target.files?.[0] || null);
-
   const handleDrop = (e) => {
     e.preventDefault();
     const dropped = e.dataTransfer.files?.[0];
@@ -214,75 +213,73 @@ export default function UploadBox() {
   };
 
   return (
-    <div
-      onDrop={handleDrop}
-      onDragOver={(e) => e.preventDefault()}
-      className="w-full max-w-6xl mx-auto border-2 border-dashed border-gray-400 rounded-3xl p-10 text-center bg-white hover:bg-gray-50 transition-all duration-300 shadow-sm sm:p-8 md:p-10 lg:p-12"
-    >
-      <h2 className="text-xl font-semibold mb-3">העלה קובץ אודיו</h2>
+    <div className="flex flex-col items-center w-full">
+      {/* שלב ההעלאה */}
+      <div
+        onDrop={handleDrop}
+        onDragOver={(e) => e.preventDefault()}
+        className="w-full max-w-5xl border-2 border-dashed border-gray-400 rounded-3xl p-10 text-center bg-white hover:bg-gray-50 transition-all duration-300 shadow-sm sm:p-8 md:p-10"
+      >
+        <h2 className="text-xl font-semibold mb-3">העלה קובץ אודיו</h2>
 
-      <input type="file" accept="audio/*" onChange={handleFileSelect} id="audioInput" style={{ display: "none" }} />
-      <label htmlFor="audioInput" className="cursor-pointer text-blue-600 underline">
-        בחר קובץ מהמחשב
-      </label>
+        <input type="file" accept="audio/*" onChange={handleFileSelect} id="audioInput" style={{ display: "none" }} />
+        <label htmlFor="audioInput" className="cursor-pointer text-blue-600 underline">
+          בחר קובץ מהמחשב
+        </label>
 
-      {file && <p className="mt-3 text-gray-700">{file.name}</p>}
+        {file && <p className="mt-3 text-gray-700">{file.name}</p>}
 
-      {!isUploading ? (
-        <Button onClick={handleUpload} className="mt-4">העלה</Button>
-      ) : (
-        <p className="mt-4 text-gray-600">מעלה קובץ...</p>
-      )}
+        {!isUploading ? (
+  <Button
+    onClick={handleUpload}
+    className="mt-4"
+    disabled={!!uploadedUrl || !file}
+  >
+    העלה
+  </Button>
+) : (
+  <p className="mt-4 text-gray-600">מעלה קובץ...</p>
+)}
 
-      {uploadedUrl && (
-        <>
-          <div className="mt-6 text-sm text-green-700 break-all">
-            <p>✅ קובץ הועלה:</p>
-            <a href={uploadedUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
-              {uploadedUrl}
-            </a>
-          </div>
 
-          <Button
-            onClick={handleTranscribe}
-            className="mt-4 bg-green-600 hover:bg-green-700"
-            disabled={isTranscribing || segments.length > 0}
-          >
-            תמלל קובץ זה
-          </Button>
-        </>
-      )}
-
-      {status && (
-        <div className="mt-4 p-3 text-sm bg-gray-100 border rounded-md">
-          {status}
-          {isTranscribing && (
-            <div className="w-full bg-gray-200 rounded-full h-2 mt-3">
-              <div className="bg-green-500 h-2 rounded-full transition-all" style={{ width: `${progress}%` }}></div>
+        {uploadedUrl && (
+          <>
+            <div className="mt-6 text-sm text-green-700 break-all">
+              <p>✅ קובץ הועלה:</p>
+              <a href={uploadedUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
+                {uploadedUrl}
+              </a>
             </div>
-          )}
-        </div>
-      )}
 
+            <Button
+              onClick={handleTranscribe}
+              className="mt-4 bg-green-600 hover:bg-green-700"
+              disabled={isTranscribing || segments.length > 0}
+            >
+              תמלל קובץ זה
+            </Button>
+          </>
+        )}
+
+        {status && (
+          <div className="mt-4 p-3 text-sm bg-gray-100 border rounded-md">
+            {status}
+            {isTranscribing && (
+              <div className="w-full bg-gray-200 rounded-full h-2 mt-3">
+                <div className="bg-green-500 h-2 rounded-full transition-all" style={{ width: `${progress}%` }}></div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* שלב התמלול */}
       {segments.length > 0 && (
         <div className="mt-10 w-full max-w-6xl mx-auto text-right">
-          <div className="bg-gradient-to-b from-gray-100 to-gray-50 border border-gray-300 rounded-2xl shadow-md p-6">
-            <h3 className="text-xl font-semibold flex items-center gap-2 mb-5">
-              🎧 תמלול עם דוברים:
-            </h3>
-
-            <div className="border border-gray-200 rounded-xl bg-white p-4 w-full">
-              <TranscriptPlayer transcriptData={segments} audioUrl={audioUrl} />
-            </div>
-
-            <div className="mt-6 flex flex-wrap gap-2 justify-center">
-              <Button onClick={() => handleDownload("txt")}>TXT 📄</Button>
-              <Button onClick={() => handleDownload("json")}>JSON 🧩</Button>
-              <Button onClick={() => handleDownload("csv")}>CSV 📊</Button>
-              <Button onClick={() => handleDownload("srt")}>SRT 🎬</Button>
-              <Button onClick={handleCopy}>📋 העתק תמלול</Button>
-            </div>
-          </div>
+          <p className="text-sm text-gray-500 mb-2 text-center">
+            💡 ניתן ללחוץ על משפט כדי לדלג בנגן, ללחוץ פעמיים על שם דובר כדי לעדכן אותו, וללחוץ על מילים כדי לתקן אותן.
+          </p>
+          <TranscriptPlayer transcriptData={segments} audioUrl={audioUrl} onDownload={handleDownload} onCopy={handleCopy} />
         </div>
       )}
     </div>

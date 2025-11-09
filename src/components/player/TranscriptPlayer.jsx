@@ -11,46 +11,51 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
   const [autoScroll, setAutoScroll] = useState(true);
   const [scrollTimeout, setScrollTimeout] = useState(null);
 
-  // 🎨 צבעים עדינים לכל דובר
+  // 🎨 צבעים עדינים לדוברים
   const speakerColors = [
     "border-blue-300 bg-blue-50",
     "border-green-300 bg-green-50",
     "border-purple-300 bg-purple-50",
     "border-pink-300 bg-pink-50",
-    "border-orange-300 bg-orange-50",
   ];
 
-  // 🔧 הגדרת סגנון לכל דובר (צבע + הזחה)
-  const getSpeakerStyle = (speaker, index) => {
-    const uniqueIndex =
-      Object.keys(speakerNames).indexOf(speaker) !== -1
-        ? Object.keys(speakerNames).indexOf(speaker)
-        : index % speakerColors.length;
+  // 🧭 יצירת סדר הופעת הדוברים
+  const speakerOrder = {};
+  segments.forEach((seg) => {
+    if (!speakerOrder[seg.speaker]) {
+      speakerOrder[seg.speaker] = Object.keys(speakerOrder).length;
+    }
+  });
 
-    const color = speakerColors[uniqueIndex % speakerColors.length];
-    const indent = uniqueIndex * 28; // הזחה הדרגתית
-
-    return { color, indent };
+  // 🔧 עיצוב והזחה לפי צדדים (דובר 1 ימין, דובר 2 פנימה)
+  const getSpeakerStyle = (speaker) => {
+    const index = speakerOrder[speaker] % 2; // שני צדדים בלבד
+    const indent = index === 0 ? 0 : 40; // דובר שני מוזח פנימה
+    const color = speakerColors[index % speakerColors.length];
+    return { indent, color };
   };
 
-  // עדכון זמן נגן
+  // ⏱️ עדכון זמן נגן
   const handleTimeUpdate = () => {
     if (audioRef.current) setCurrentTime(audioRef.current.currentTime);
   };
 
-  // חישוב משפט פעיל
+  // 🎯 זיהוי הפסקה המושמעת (עם טולרנס קטן כדי שגם הראשונה תצבע)
   const activeIndex = segments.findIndex(
-    (seg) => currentTime >= seg.start && currentTime <= seg.end
+    (seg) => currentTime >= (seg.start - 0.3) && currentTime <= seg.end
   );
 
-  // גלילה חכמה (רק כשלא גוללים)
+  // 🔁 גלילה אוטומטית למשפט הפעיל
   useEffect(() => {
     if (!autoScroll || !containerRef.current) return;
     const lines = containerRef.current.querySelectorAll(".line");
     const activeLine = lines[activeIndex];
-    if (activeLine) activeLine.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (activeLine) {
+      activeLine.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   }, [activeIndex, autoScroll]);
 
+  // ⏸️ עצירת גלילה אוטומטית בזמן גלילה ידנית
   const handleUserScroll = useCallback(() => {
     setAutoScroll(false);
     if (scrollTimeout) clearTimeout(scrollTimeout);
@@ -65,9 +70,12 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     return () => el.removeEventListener("scroll", handleUserScroll);
   }, [handleUserScroll]);
 
-  // שינוי שם דובר
+  // ✏️ שינוי שם דובר
   const handleSpeakerRename = (oldName) => {
-    const newName = prompt(`שם חדש עבור ${oldName}:`, speakerNames[oldName] || oldName);
+    const newName = prompt(
+      `שם חדש עבור ${oldName}:`,
+      speakerNames[oldName] || oldName
+    );
     if (newName && newName !== oldName) {
       setSpeakerNames((prev) => ({ ...prev, [oldName]: newName }));
       setSegments((prev) =>
@@ -78,7 +86,7 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     }
   };
 
-  // עריכת מילה
+  // ✏️ עריכת מילה
   const splitWords = (text) => text.split(/(\s+)/);
 
   const handleWordDoubleClick = (segIndex, wordIndex) =>
@@ -95,6 +103,7 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     );
   };
 
+  // ▶️ לחיצה על משפט לקפיצה בנגן
   const handleClick = (time) => {
     if (audioRef.current) {
       audioRef.current.currentTime = time;
@@ -102,7 +111,7 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     }
   };
 
-  // 📦 הורדה משולבת (מקור + ערוך)
+  // 💾 הורדה משולבת (מקור + ערוך)
   const handleDownloadCombined = () => {
     const combined = {
       metadata: {
@@ -124,19 +133,16 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     URL.revokeObjectURL(url);
   };
 
-  // 🧩 מאזין לבקשה מה-UploadBox
-  useEffect(() => {
-    const handleCombinedDownload = () => handleDownloadCombined();
-    window.addEventListener("downloadCombined", handleCombinedDownload);
-    return () => window.removeEventListener("downloadCombined", handleCombinedDownload);
-  }, []);
-
   if (!segments?.length)
     return <div className="text-gray-500 mt-4">⏳ אין נתונים להצגה.</div>;
 
   return (
-    <div className="w-full max-w-2xl mx-auto mt-6 text-right">
-      {/* 🎵 נגן */}
+    <div className="w-full max-w-6xl mx-auto mt-6 text-right">
+      <p className="text-sm text-gray-500 mb-2 flex items-center gap-1">
+        💡 ניתן ללחוץ על משפט כדי לדלג בנגן, ללחוץ פעמיים על שם דובר כדי לעדכן אותו,
+        וללחוץ על מילים כדי לתקן אותן.
+      </p>
+
       <audio
         ref={audioRef}
         controls
@@ -145,13 +151,12 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
         src={audioUrl}
       ></audio>
 
-      {/* 💬 תמלול בעיצוב וואטסאפ */}
       <div
         ref={containerRef}
-        className="max-h-96 overflow-y-auto border border-gray-300 rounded-xl p-5 bg-gray-50 shadow-inner"
+        className="max-h-[500px] overflow-y-auto border rounded-lg p-4 bg-gray-50 shadow-inner"
       >
         {segments.map((seg, i) => {
-          const { color, indent } = getSpeakerStyle(seg.speaker, i);
+          const { color, indent } = getSpeakerStyle(seg.speaker);
           const words = splitWords(seg.text);
           const displaySpeaker = speakerNames[seg.speaker] || seg.speaker;
           const isActive = i === activeIndex;
@@ -161,7 +166,7 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
               key={i}
               onClick={() => handleClick(seg.start)}
               style={{ marginRight: `${indent}px` }}
-              className={`line mb-5 p-3 border ${color} rounded-2xl shadow-sm transition-all cursor-pointer ${
+              className={`line mb-4 p-3 border ${color} rounded-2xl shadow-sm transition-all cursor-pointer ${
                 isActive ? "bg-yellow-100 border-yellow-400" : ""
               }`}
             >
@@ -172,7 +177,7 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
               >
                 {displaySpeaker}:
               </span>{" "}
-              {/* טקסט עם עריכה */}
+              {/* תוכן המשפט */}
               {words.map((word, wIndex) => {
                 const editing =
                   isEditing?.segIndex === i && isEditing?.wordIndex === wIndex;
@@ -209,7 +214,7 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
         })}
       </div>
 
-      {/* הורדה מקומית (רק כאן, למקרה של שימוש עצמאי) */}
+      {/* כפתור הורדה משולבת */}
       <div className="flex justify-center mt-5">
         <button
           onClick={handleDownloadCombined}
