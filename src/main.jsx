@@ -1,16 +1,14 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "./index.css";
-import { Button } from "./components/ui/button";
-
-console.log("Button:", Button);
+import UploadBox from "./components/upload/UploadBox";
 
 function App() {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-6 text-center">
+    <div className="min-h-screen flex flex-col items-center justify-center gap-8 text-center p-6">
       <h1 className="text-3xl font-bold">🎧 Tamleli Pro</h1>
       <p className="text-gray-600">המערכת לתמלול וזיהוי דוברים בעברית</p>
-      <Button onClick={() => alert("שלום ניצן!")}>התחל תמלול</Button>
+      <UploadBox />
     </div>
   );
 }
