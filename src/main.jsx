@@ -3,6 +3,8 @@ import ReactDOM from "react-dom/client";
 import "./index.css";
 import { Button } from "./components/ui/button";
 
+console.log("Button:", Button);
+
 function App() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-6 text-center">
