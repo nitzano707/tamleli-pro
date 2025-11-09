@@ -36,16 +36,14 @@ export default function UploadBox() {
     formData.append("file", file);
 
     try {
-      const res = await fetch(`${BASE_URL}/upload`, {
-        method: "POST",
-        body: formData,
-      });
+      const res = await fetch(`${BASE_URL}/upload`, { method: "POST", body: formData });
       if (!res.ok) throw new Error("שגיאה בהעלאה");
       const data = await res.json();
       setUploadedUrl(data.url);
       setAudioUrl(data.url);
       setStatus("✅ הקובץ הועלה בהצלחה!");
       setProgress(100);
+      setSegments([]); // אפס תמלול קודם
     } catch (err) {
       console.error(err);
       setStatus("❌ שגיאה בהעלאה");
@@ -64,9 +62,7 @@ export default function UploadBox() {
     try {
       const res = await fetch(RUNPOD_URL, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           input: {
             engine: "stable-whisper",
@@ -98,18 +94,15 @@ export default function UploadBox() {
     }
   };
 
-  // 🔁 בדיקת סטטוס נכונה (GET /status/<id>)
+  // 🔁 בדיקת סטטוס
   useEffect(() => {
     if (!jobId) return;
-
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`${RUNPOD_STATUS_BASE}/${jobId}`, {
-          method: "GET",
-        });
+        const res = await fetch(`${RUNPOD_STATUS_BASE}/${jobId}`);
         if (!res.ok) throw new Error("שגיאה בבדיקת סטטוס");
-
         const data = await res.json();
+
         if (data?.status) {
           setStatus(`🔄 סטטוס: ${data.status}`);
           if (data.status === "IN_QUEUE") setProgress(40);
@@ -122,15 +115,11 @@ export default function UploadBox() {
             setStatus("✅ התמלול הושלם!");
 
             let segments = [];
-            let text = "";
-
             try {
               if (data.output?.transcription?.segments) {
                 segments = data.output.transcription.segments;
-                text = data.output.transcription.text || "";
               } else if (data.output?.segments) {
                 segments = data.output.segments;
-                text = data.output.text || "";
               } else if (Array.isArray(data.output) && data.output[0]?.result) {
                 const nested = data.output[0].result.flat();
                 segments = nested.map((seg) => ({
@@ -139,25 +128,15 @@ export default function UploadBox() {
                   start: seg.start,
                   end: seg.end,
                 }));
-                text = segments.map((s) => s.text).join(" ");
               } else {
-                text =
-                  data.output?.text ||
-                  data.output?.transcription?.text ||
-                  "❌ לא התקבל טקסט תקין";
-                segments = [{ speaker: "דובר", text }];
+                segments = [{ speaker: "דובר", text: data.output?.text || "❌ לא התקבל טקסט תקין" }];
               }
             } catch (err) {
               console.error("⚠️ שגיאה בפענוח הנתונים:", err);
-              text = "⚠️ שגיאה בפענוח הנתונים";
-              segments = [{ speaker: "דובר", text }];
+              segments = [{ speaker: "דובר", text: "⚠️ שגיאה בפענוח הנתונים" }];
             }
 
-            if (segments.length > 0) {
-              setSegments(mergeSpeakers(segments));
-            } else {
-              setSegments([{ speaker: "דובר", text }]);
-            }
+            if (segments.length > 0) setSegments(mergeSpeakers(segments));
           }
 
           if (data.status === "FAILED") {
@@ -178,23 +157,22 @@ export default function UploadBox() {
   // 🧠 מיזוג דוברים
   const mergeSpeakers = (segments) => {
     const merged = [];
-    if (!segments || segments.length === 0) return merged;
-
-    let current = { speaker: segments[0].speaker, text: segments[0].text, start: segments[0].start, end: segments[0].end };
+    if (!segments || !segments.length) return merged;
+    let current = { ...segments[0] };
     for (let i = 1; i < segments.length; i++) {
       if (segments[i].speaker === current.speaker) {
         current.text += " " + segments[i].text;
         current.end = segments[i].end;
       } else {
         merged.push(current);
-        current = { speaker: segments[i].speaker, text: segments[i].text, start: segments[i].start, end: segments[i].end };
+        current = { ...segments[i] };
       }
     }
     merged.push(current);
     return merged;
   };
 
-  // 📄 הורדות
+  // 📄 הורדות רגילות
   const downloadFile = (content, filename, type) => {
     const blob = new Blob([content], { type });
     const url = URL.createObjectURL(blob);
@@ -208,7 +186,6 @@ export default function UploadBox() {
   const handleDownload = (format) => {
     if (!segments.length) return;
     let content = "";
-
     if (format === "txt") {
       content = segments.map((s) => `${s.speaker}:\n${s.text.trim()}\n`).join("\n");
       downloadFile(content, "transcript.txt", "text/plain");
@@ -219,10 +196,7 @@ export default function UploadBox() {
       content =
         "Speaker,Text\n" +
         segments
-          .map(
-            (s) =>
-              `"${s.speaker}","${s.text.replace(/"/g, '""').trim()}"`
-          )
+          .map((s) => `"${s.speaker}","${s.text.replace(/"/g, '""').trim()}"`)
           .join("\n");
       downloadFile(content, "transcript.csv", "text/csv");
     } else if (format === "srt") {
@@ -243,7 +217,7 @@ export default function UploadBox() {
     <div
       onDrop={handleDrop}
       onDragOver={(e) => e.preventDefault()}
-      className="border-2 border-dashed border-gray-400 rounded-2xl p-10 text-center bg-gray-50 hover:bg-gray-100 transition-colors w-full max-w-lg"
+      className="w-full max-w-6xl mx-auto border-2 border-dashed border-gray-400 rounded-3xl p-10 text-center bg-white hover:bg-gray-50 transition-all duration-300 shadow-sm sm:p-8 md:p-10 lg:p-12"
     >
       <h2 className="text-xl font-semibold mb-3">העלה קובץ אודיו</h2>
 
@@ -269,7 +243,11 @@ export default function UploadBox() {
             </a>
           </div>
 
-          <Button onClick={handleTranscribe} className="mt-4 bg-green-600 hover:bg-green-700" disabled={isTranscribing}>
+          <Button
+            onClick={handleTranscribe}
+            className="mt-4 bg-green-600 hover:bg-green-700"
+            disabled={isTranscribing || segments.length > 0}
+          >
             תמלל קובץ זה
           </Button>
         </>
@@ -286,20 +264,24 @@ export default function UploadBox() {
         </div>
       )}
 
-      {/* 🎧 מציג את התמלול והנגן */}
       {segments.length > 0 && (
-        <div className="mt-8 bg-white border rounded-lg p-4 text-right shadow">
-          <h3 className="text-lg font-semibold mb-4">🎧 תמלול עם דוברים:</h3>
+        <div className="mt-10 w-full max-w-6xl mx-auto text-right">
+          <div className="bg-gradient-to-b from-gray-100 to-gray-50 border border-gray-300 rounded-2xl shadow-md p-6">
+            <h3 className="text-xl font-semibold flex items-center gap-2 mb-5">
+              🎧 תמלול עם דוברים:
+            </h3>
 
-          {/* נגן מסונכרן */}
-          <TranscriptPlayer transcriptData={segments} audioUrl={audioUrl} />
+            <div className="border border-gray-200 rounded-xl bg-white p-4 w-full">
+              <TranscriptPlayer transcriptData={segments} audioUrl={audioUrl} />
+            </div>
 
-          <div className="mt-6 flex flex-wrap gap-2 justify-center">
-            <Button onClick={() => handleDownload("txt")}>TXT 📄</Button>
-            <Button onClick={() => handleDownload("json")}>JSON 🧩</Button>
-            <Button onClick={() => handleDownload("csv")}>CSV 📊</Button>
-            <Button onClick={() => handleDownload("srt")}>SRT 🎬</Button>
-            <Button onClick={handleCopy}>📋 העתק תמלול</Button>
+            <div className="mt-6 flex flex-wrap gap-2 justify-center">
+              <Button onClick={() => handleDownload("txt")}>TXT 📄</Button>
+              <Button onClick={() => handleDownload("json")}>JSON 🧩</Button>
+              <Button onClick={() => handleDownload("csv")}>CSV 📊</Button>
+              <Button onClick={() => handleDownload("srt")}>SRT 🎬</Button>
+              <Button onClick={handleCopy}>📋 העתק תמלול</Button>
+            </div>
           </div>
         </div>
       )}
