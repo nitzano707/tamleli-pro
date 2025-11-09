@@ -1,6 +1,6 @@
+
 import React, { useState } from "react";
 import { Button } from "../ui/button";
-
 
 export default function UploadBox() {
   const [file, setFile] = useState(null);
@@ -40,7 +40,11 @@ export default function UploadBox() {
     >
       <h2 className="text-xl font-semibold mb-3">העלה קובץ אודיו</h2>
 
+<<<<<<< HEAD
      <input
+=======
+      <input
+>>>>>>> bc46853 (עדכון קוד מה-Codespace)
   type="file"
   accept="audio/*"
   onChange={handleFileSelect}
