@@ -6,7 +6,6 @@ import {
   TextRun,
   HeadingLevel,
   AlignmentType,
-  SectionType,
 } from "docx";
 import { saveAs } from "file-saver";
 
@@ -22,15 +21,10 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
   const [scrollTimeout, setScrollTimeout] = useState(null);
   const [wasPlaying, setWasPlaying] = useState(false);
 
-  // 🎨 צבעי רקע למסגרות דוברים בממשק
-  const speakerColors = [
-    "border-blue-300 bg-blue-50",
-    "border-green-300 bg-green-50",
-    "border-purple-300 bg-purple-50",
-    "border-pink-300 bg-pink-50",
-  ];
+  // 🎨 צבעים לדוברים
+  const speakerColors = ["2E74B5", "C0504D", "9BBB59", "8064A2", "4BACC6"];
 
-  // 🧭 סדר הופעת הדוברים
+  // 🧭 סדר דוברים
   const speakerOrder = {};
   segments.forEach((seg) => {
     if (!speakerOrder[seg.speaker]) {
@@ -38,7 +32,7 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     }
   });
 
-  // 🔧 עיצוב והזחה (שני צדדים)
+  // עיצוב והזחה לפי צדדים
   const getSpeakerStyle = (speaker) => {
     const index = speakerOrder[speaker] % 2;
     const indent = index === 0 ? 0 : 40;
@@ -46,17 +40,17 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     return { indent, color };
   };
 
-  // ⏱️ עדכון זמן נגן
+  // עדכון זמן נגן
   const handleTimeUpdate = () => {
     if (audioRef.current) setCurrentTime(audioRef.current.currentTime);
   };
 
-  // 🎯 זיהוי הפסקה הפעילה (טולרנס קטן כדי שגם הראשונה תיצבע)
+  // פסקה מושמעת
   const activeIndex = segments.findIndex(
     (seg) => currentTime >= (seg.start - 0.3) && currentTime <= seg.end
   );
 
-  // 🔁 גלילה אוטומטית לפסקה הפעילה
+  // גלילה אוטומטית
   useEffect(() => {
     if (!autoScroll || !containerRef.current) return;
     const lines = containerRef.current.querySelectorAll(".line");
@@ -66,7 +60,7 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     }
   }, [activeIndex, autoScroll]);
 
-  // ⏸️ עצירת הגלילה האוטומטית כאשר המשתמש גולל ידנית
+  // עצירת גלילה ידנית
   const handleUserScroll = useCallback(() => {
     setAutoScroll(false);
     if (scrollTimeout) clearTimeout(scrollTimeout);
@@ -81,7 +75,7 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     return () => el.removeEventListener("scroll", handleUserScroll);
   }, [handleUserScroll]);
 
-  // ✏️ שינוי שם דובר (עוצר נגן בזמן עריכה ומחדש בסיום)
+  // שינוי שם דובר
   const handleSpeakerRename = (oldName) => {
     if (audioRef.current) {
       setWasPlaying(!audioRef.current.paused);
@@ -99,7 +93,7 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     if (wasPlaying && audioRef.current) audioRef.current.play();
   };
 
-  // ✏️ עריכת מילה (עוצר נגן בזמן עריכה ומחדש בסיום)
+  // עריכת מילה
   const splitWords = (text) => text.split(/(\s+)/);
 
   const handleWordDoubleClick = (segIndex, wordIndex) => {
@@ -122,7 +116,7 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     if (wasPlaying && audioRef.current) audioRef.current.play();
   };
 
-  // ▶️ קפיצה בזמן בלחיצה על פסקה
+  // דילוג בנגן
   const handleClick = (time) => {
     if (audioRef.current) {
       audioRef.current.currentTime = time;
@@ -130,10 +124,13 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     }
   };
 
-  // 💾 הורדת JSON משולב (מקור + ערוך)
+  // 💾 הורדה JSON
   const handleDownloadCombined = () => {
     const combined = {
-      metadata: { app: "Tamleli Pro", exported_at: new Date().toISOString() },
+      metadata: {
+        app: "Tamleli Pro",
+        exported_at: new Date().toISOString(),
+      },
       original_transcript: originalSegments,
       edited_transcript: segments,
     };
@@ -143,100 +140,115 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     saveAs(blob, "transcript_combined.json");
   };
 
-  // 📝 הורדת Word – RTL, יישור לימין, צבעי דוברים, חותמות זמן
+  // 📝 הורדת Word בעברית תקינה
   const handleDownloadWord = async () => {
-    // צבעים לשמות דוברים ב-HEX (ללא #)
-    const colors = ["0066CC", "CC0000", "009900", "990099"];
-    const colorMap = {};
-    let colorIndex = 0;
-
-    const doc = new Document({
-      sections: [
-        {
-          properties: { type: SectionType.CONTINUOUS, rightToLeft: true },
-          children: [
-            new Paragraph({
-              text: "תמלול עם דוברים",
-              heading: HeadingLevel.TITLE,
-              alignment: AlignmentType.RIGHT,
-            }),
-            ...segments.flatMap((seg) => {
-              if (!colorMap[seg.speaker]) {
-                colorMap[seg.speaker] = colors[colorIndex % colors.length];
-                colorIndex++;
-              }
-              const nameColor = colorMap[seg.speaker];
-
-              return [
-                // שם הדובר
-                new Paragraph({
-                  alignment: AlignmentType.RIGHT,
-                  bidirectional: true,
-                  children: [
-                    new TextRun({
-                      text: `${seg.speaker}: `,
-                      bold: true,
-                      color: nameColor,
-                      size: 28, // 14pt
-                      font: "David",
-                    }),
-                  ],
-                }),
-                // חותמות זמן
-                new Paragraph({
-                  alignment: AlignmentType.RIGHT,
-                  bidirectional: true,
-                  children: [
-                    new TextRun({
-                      text:
-                        seg.start !== undefined && seg.end !== undefined
-                          ? `⏱️ ${seg.start.toFixed(2)}s – ${seg.end.toFixed(2)}s`
-                          : "",
-                      color: "777777",
-                      size: 18, // 9pt
-                      font: "David",
-                      italics: true,
-                    }),
-                  ],
-                }),
-                // תוכן הפסקה
-                new Paragraph({
-                  alignment: AlignmentType.RIGHT,
-                  bidirectional: true,
-                  children: [
-                    new TextRun({
-                      text: seg.text,
-                      color: "000000",
-                      size: 24, // 12pt
-                      font: "David",
-                    }),
-                  ],
-                }),
-                // רווח בין דוברים
-                new Paragraph({ text: "", spacing: { before: 100 } }),
-              ];
-            }),
-          ],
+  const RLE = '\u202B';
+  const PDF = '\u202C';
+  
+  const doc = new Document({
+    sections: [
+      {
+        properties: {
+          rightToLeft: true,
+          bidirectional: true,
         },
-      ],
-    });
+        children: [
+          new Paragraph({
+            alignment: AlignmentType.RIGHT,
+            rightToLeft: true,
+            spacing: {
+              after: 400,
+            },
+            children: [
+              new TextRun({
+                text: "תמלול עם דוברים",
+                bold: true,
+                size: 36,
+                font: {
+                  name: "David",
+                  hint: "eastAsia",
+                },
+                language: {
+                  value: "he-IL",
+                },
+              }),
+            ],
+          }),
+          ...segments.map((seg) => {
+            const colorHex =
+              speakerColors[
+                speakerOrder[seg.speaker] % speakerColors.length
+              ];
+            
+            return new Paragraph({
+              alignment: AlignmentType.RIGHT,
+              rightToLeft: true,
+              spacing: {
+                after: 200,
+              },
+              children: [
+                new TextRun({
+                  text: RLE + seg.speaker + ": " + PDF,
+                  bold: true,
+                  color: colorHex,
+                  font: {
+                    name: "David",
+                    hint: "eastAsia",
+                  },
+                  size: 28,
+                  language: {
+                    value: "he-IL",
+                  },
+                }),
+                new TextRun({
+                  text: RLE + seg.text + PDF,
+                  bold: false,
+                  color: "000000",
+                  font: {
+                    name: "David",
+                    hint: "eastAsia",
+                  },
+                  size: 24,
+                  language: {
+                    value: "he-IL",
+                  },
+                }),
+              ],
+            });
+          }),
+        ],
+      },
+    ],
+  });
+  const blob = await Packer.toBlob(doc);
+  saveAs(blob, "transcript_hebrew.docx");
+};
 
-    const blob = await Packer.toBlob(doc);
-    saveAs(blob, "transcript_rtl.docx");
+  // ⏱️ פונקציית פורמט זמן hh:mm:ss
+  const formatTime = (seconds) => {
+    if (seconds == null) return "";
+    const h = Math.floor(seconds / 3600).toString().padStart(2, "0");
+    const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, "0");
+    const s = Math.floor(seconds % 60).toString().padStart(2, "0");
+    return `${h}:${m}:${s}`;
   };
 
-  // 📊 הורדת CSV בעברית (כולל BOM ל-Excel)
+  // 📊 הורדת CSV עם זמן מעוצב
   const handleDownloadCSV = () => {
     if (!segments.length) return;
     const header = ["start_time", "end_time", "speaker", "text"];
     const rows = segments.map((s) => [
-      s.start?.toFixed(2) || "",
-      s.end?.toFixed(2) || "",
+      formatTime(s.start),
+      formatTime(s.end),
       s.speaker,
       `"${s.text.replace(/"/g, '""')}"`,
     ]);
-    const csvContent = [header.join(","), ...rows.map((r) => r.join(","))].join("\n");
-    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8" });
+    const csvContent = [header.join(","), ...rows.map((r) => r.join(","))].join(
+      "\n"
+    );
+    const blob = new Blob(["\uFEFF" + csvContent], {
+      type: "text/csv;charset=utf-8",
+    });
     saveAs(blob, "transcript_hebrew.csv");
   };
 
@@ -247,7 +259,7 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     <div className="w-full max-w-6xl mx-auto mt-6 text-right">
       <p className="text-sm text-gray-500 mb-2 flex items-center gap-1">
         💡 ניתן ללחוץ על משפט כדי לדלג בנגן, ללחוץ פעמיים על שם דובר כדי לעדכן אותו,
-        וללחוץ על מילים כדי לתקן אותן.
+        וללחוץ פעמיים על מילים כדי לתקן אותן.
       </p>
 
       <audio
@@ -273,26 +285,20 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
               key={i}
               onClick={() => handleClick(seg.start)}
               style={{ marginRight: `${indent}px` }}
-              className={`line mb-4 p-3 border ${color} rounded-2xl shadow-sm transition-all cursor-pointer ${
-                isActive ? "bg-yellow-100 border-yellow-400" : ""
+              className={`line mb-4 p-3 border rounded-2xl shadow-sm transition-all cursor-pointer ${
+                isActive ? "bg-yellow-100 border-yellow-400" : "bg-white"
               }`}
             >
-              {/* שם הדובר */}
+              <div className="text-xs text-gray-500 mb-1">
+                {formatTime(seg.start)} - {formatTime(seg.end)}
+              </div>
+
               <span
                 className="font-semibold text-sm text-gray-700 cursor-pointer select-none"
                 onDoubleClick={() => handleSpeakerRename(seg.speaker)}
               >
                 {displaySpeaker}:
-              </span>
-
-              {/* 🕒 חותמות זמן */}
-              <div className="text-xs text-gray-500 mt-1 mb-1">
-                {seg.start !== undefined && seg.end !== undefined
-                  ? `⏱️ ${seg.start.toFixed(2)}s – ${seg.end.toFixed(2)}s`
-                  : ""}
-              </div>
-
-              {/* התוכן (עריכת מילים בלחיצה כפולה) */}
+              </span>{" "}
               {words.map((word, wIndex) => {
                 const editing =
                   isEditing?.segIndex === i && isEditing?.wordIndex === wIndex;
