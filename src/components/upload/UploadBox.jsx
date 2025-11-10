@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Button } from "../ui/button";
 import TranscriptPlayer from "../player/TranscriptPlayer";
+import { useGoogleLogin, googleLogout } from "@react-oauth/google";
 
 const BASE_URL = "https://my-transcribe-proxy.onrender.com";
 const RUNPOD_URL = `${BASE_URL}/transcribe`;
@@ -17,7 +18,42 @@ export default function UploadBox() {
   const [segments, setSegments] = useState([]);
   const [mediaUrl, setMediaUrl] = useState("");
   const [isVideo, setIsVideo] = useState(false);
+  const [user, setUser] = useState(null);
 
+  // 🧩 שחזור משתמש מחובר
+  useEffect(() => {
+    const storedUser = localStorage.getItem("user");
+    if (storedUser) setUser(JSON.parse(storedUser));
+  }, []);
+
+  // ✅ התחברות עם קבלת Access Token אמיתי
+  const handleLogin = useGoogleLogin({
+    scope:
+      "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly openid profile email",
+    onSuccess: async (tokenResponse) => {
+      console.log("🔑 Token Response:", tokenResponse);
+      const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+        headers: { Authorization: `Bearer ${tokenResponse.access_token}` },
+      });
+      const profile = await res.json();
+      const userObj = { ...profile, token: tokenResponse.access_token };
+      setUser(userObj);
+      localStorage.setItem("user", JSON.stringify(userObj));
+      console.log("✅ התחברות מוצלחת:", userObj);
+      setStatus(`ברוך הבא ${userObj.name} 👋`);
+    },
+    onError: (err) => console.error("❌ שגיאה בהתחברות:", err),
+  });
+
+  // 🚪 התנתקות
+  const handleLogout = () => {
+    googleLogout();
+    localStorage.removeItem("user");
+    setUser(null);
+    setStatus("התנתקת בהצלחה");
+  };
+
+  // 🎞️ בחירת קובץ
   const handleFileSelect = (e) => {
     const f = e.target.files?.[0];
     if (f) {
@@ -38,6 +74,7 @@ export default function UploadBox() {
   // 📤 העלאת קובץ
   const handleUpload = async () => {
     if (!file) return alert("בחר קובץ קודם");
+    if (!user) return alert("יש להתחבר קודם עם Google");
     setIsUploading(true);
     setStatus("מעלה קובץ...");
     setProgress(20);
@@ -53,7 +90,10 @@ export default function UploadBox() {
       setMediaUrl(data.url);
       setStatus("✅ הקובץ הועלה בהצלחה!");
       setProgress(100);
-      setSegments([]); // אפס תמלול קודם
+      setSegments([]);
+
+      // שמור את קובץ המדיה בדרייב
+      await saveFileToDrive(file.name, file.type, await file.arrayBuffer());
     } catch (err) {
       console.error(err);
       setStatus("❌ שגיאה בהעלאה");
@@ -65,6 +105,7 @@ export default function UploadBox() {
   // 🎧 התחלת תמלול
   const handleTranscribe = async () => {
     if (!uploadedUrl) return alert("קודם העלה קובץ");
+    if (!user) return alert("יש להתחבר עם Google לפני תמלול");
     setIsTranscribing(true);
     setStatus("📤 שולח בקשה לשרת...");
     setProgress(10);
@@ -104,7 +145,7 @@ export default function UploadBox() {
     }
   };
 
-  // 🔁 בדיקת סטטוס
+  // 🔁 סטטוס תמלול
   useEffect(() => {
     if (!jobId) return;
     const interval = setInterval(async () => {
@@ -146,7 +187,15 @@ export default function UploadBox() {
               segments = [{ speaker: "דובר", text: "⚠️ שגיאה בפענוח הנתונים" }];
             }
 
-            if (segments.length > 0) setSegments(mergeSpeakers(segments));
+            if (segments.length > 0) {
+              setSegments(mergeSpeakers(segments));
+
+              // שמור תמלול בדרייב
+              const txtContent = segments
+                .map((s) => `${s.speaker}:\n${s.text.trim()}\n`)
+                .join("\n");
+              await saveFileToDrive(`transcript_${Date.now()}.txt`, "text/plain", txtContent);
+            }
           }
 
           if (data.status === "FAILED") {
@@ -182,6 +231,62 @@ export default function UploadBox() {
     return merged;
   };
 
+  // ☁️ שמירה בדרייב
+  const saveFileToDrive = async (fileName, mimeType, content) => {
+    try {
+      if (!user?.token) {
+        alert("אין טוקן גישה לגוגל");
+        return;
+      }
+
+      const folderQuery = encodeURIComponent("name='Tamleli Pro' and mimeType='application/vnd.google-apps.folder'");
+      const folderRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${folderQuery}`, {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
+      const folderData = await folderRes.json();
+      let folderId = folderData.files?.[0]?.id;
+
+      if (!folderId) {
+        const createFolderRes = await fetch("https://www.googleapis.com/drive/v3/files", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${user.token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: "Tamleli Pro",
+            mimeType: "application/vnd.google-apps.folder",
+          }),
+        });
+        const folder = await createFolderRes.json();
+        folderId = folder.id;
+      }
+
+      const metadata = { name: fileName, parents: [folderId] };
+      const form = new FormData();
+      form.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
+      form.append("file", new Blob([content], { type: mimeType }));
+
+      const uploadRes = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${user.token}` },
+        body: form,
+      });
+
+      if (uploadRes.ok) {
+        const saved = await uploadRes.json();
+        console.log("✅ נשמר בדרייב:", saved);
+        setStatus(`✅ הקובץ "${fileName}" נשמר בדרייב בתיקיית Tamleli Pro`);
+      } else {
+        console.error(await uploadRes.text());
+        alert("❌ לא ניתן לשמור בדרייב");
+      }
+    } catch (err) {
+      console.error("שגיאה בשמירה בדרייב:", err);
+      alert("⚠️ שגיאה בשמירה בדרייב");
+    }
+  };
+
   // 📄 הורדה / העתקה
   const downloadFile = (content, filename, type) => {
     const blob = new Blob([content], { type });
@@ -205,9 +310,7 @@ export default function UploadBox() {
     } else if (format === "csv") {
       content =
         "Speaker,Text\n" +
-        segments
-          .map((s) => `"${s.speaker}","${s.text.replace(/"/g, '""').trim()}"`)
-          .join("\n");
+        segments.map((s) => `"${s.speaker}","${s.text.replace(/"/g, '""').trim()}"`).join("\n");
       downloadFile(content, "transcript.csv", "text/csv");
     } else if (format === "srt") {
       content = segments
@@ -225,71 +328,97 @@ export default function UploadBox() {
 
   return (
     <div className="flex flex-col items-center w-full">
-      {/* העלאת קובץ */}
-      <div
-        onDrop={handleDrop}
-        onDragOver={(e) => e.preventDefault()}
-        className="w-full max-w-5xl border-2 border-dashed border-gray-400 rounded-3xl p-10 text-center bg-white hover:bg-gray-50 transition-all duration-300 shadow-sm sm:p-8 md:p-10"
-      >
-        <h2 className="text-xl font-semibold mb-3">העלה קובץ אודיו או וידאו</h2>
-
-        <input
-          type="file"
-          accept="audio/*,video/*"
-          onChange={handleFileSelect}
-          id="mediaInput"
-          style={{ display: "none" }}
-        />
-        <label htmlFor="mediaInput" className="cursor-pointer text-blue-600 underline">
-          בחר קובץ מהמחשב
-        </label>
-
-        {file && <p className="mt-3 text-gray-700">{file.name}</p>}
-
-        {!isUploading ? (
-          <Button onClick={handleUpload} className="mt-4" disabled={!!uploadedUrl || !file}>
-            העלה
-          </Button>
-        ) : (
-          <p className="mt-4 text-gray-600">מעלה קובץ...</p>
-        )}
-
-        {uploadedUrl && (
+      {/* 🔐 התחברות */}
+      <div className="mb-6 text-center">
+        {!user ? (
           <>
-            <div className="mt-6 text-sm text-green-700 break-all">
-              <p>✅ קובץ הועלה:</p>
-              <a href={uploadedUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
-                {uploadedUrl}
-              </a>
-            </div>
-
-            <Button
-              onClick={handleTranscribe}
-              className="mt-4 bg-green-600 hover:bg-green-700"
-              disabled={isTranscribing || segments.length > 0}
-            >
-              תמלל קובץ זה
+            <p className="text-gray-700 mb-2 font-semibold">התחבר באמצעות Google כדי להתחיל</p>
+            <Button onClick={() => handleLogin()} className="bg-blue-600 hover:bg-blue-700 text-white">
+              🔐 התחבר עם Google
             </Button>
           </>
-        )}
-
-        {status && (
-          <div className="mt-4 p-3 text-sm bg-gray-100 border rounded-md">
-            {status}
-            {isTranscribing && (
-              <div className="w-full bg-gray-200 rounded-full h-2 mt-3">
-                <div className="bg-green-500 h-2 rounded-full transition-all" style={{ width: `${progress}%` }}></div>
-              </div>
-            )}
+        ) : (
+          <div className="flex flex-col items-center gap-2 mb-2">
+            <img src={user.picture} alt="User" className="w-12 h-12 rounded-full shadow-sm" />
+            <p className="text-gray-700 text-sm">{user.name}</p>
+            <Button onClick={handleLogout} className="bg-red-500 hover:bg-red-600 text-white mt-1">
+              התנתק
+            </Button>
           </div>
         )}
       </div>
+
+      {/* רק אם מחובר */}
+      {user && (
+        <div
+          onDrop={handleDrop}
+          onDragOver={(e) => e.preventDefault()}
+          className="w-full max-w-5xl border-2 border-dashed border-gray-400 rounded-3xl p-10 text-center bg-white hover:bg-gray-50 transition-all duration-300 shadow-sm sm:p-8 md:p-10"
+        >
+          <h2 className="text-xl font-semibold mb-3">העלה קובץ אודיו או וידאו</h2>
+
+          <input
+            type="file"
+            accept="audio/*,video/*"
+            onChange={handleFileSelect}
+            id="mediaInput"
+            style={{ display: "none" }}
+          />
+          <label htmlFor="mediaInput" className="cursor-pointer text-blue-600 underline">
+            בחר קובץ מהמחשב
+          </label>
+
+          {file && <p className="mt-3 text-gray-700">{file.name}</p>}
+
+          {!isUploading ? (
+            <Button onClick={handleUpload} className="mt-4" disabled={!!uploadedUrl || !file}>
+              העלה
+            </Button>
+          ) : (
+            <p className="mt-4 text-gray-600">מעלה קובץ...</p>
+          )}
+
+          {uploadedUrl && (
+            <>
+              <div className="mt-6 text-sm text-green-700 break-all">
+                <p>✅ קובץ הועלה:</p>
+                <a href={uploadedUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
+                  {uploadedUrl}
+                </a>
+              </div>
+
+              <Button
+                onClick={handleTranscribe}
+                className="mt-4 bg-green-600 hover:bg-green-700"
+                disabled={isTranscribing || segments.length > 0}
+              >
+                תמלל קובץ זה
+              </Button>
+            </>
+          )}
+
+          {status && (
+            <div className="mt-4 p-3 text-sm bg-gray-100 border rounded-md">
+              {status}
+              {isTranscribing && (
+                <div className="w-full bg-gray-200 rounded-full h-2 mt-3">
+                  <div
+                    className="bg-green-500 h-2 rounded-full transition-all"
+                    style={{ width: `${progress}%` }}
+                  ></div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* נגן + תמלול */}
       {segments.length > 0 && (
         <div className="mt-10 w-full max-w-6xl mx-auto text-right">
           <p className="text-sm text-gray-500 mb-2 text-center">
-            💡 ניתן ללחוץ על משפט כדי לדלג בנגן, ללחוץ פעמיים על שם דובר כדי לעדכן אותו, וללחוץ על מילים כדי לתקן אותן.
+            💡 ניתן ללחוץ על משפט כדי לדלג בנגן, ללחוץ פעמיים על שם דובר כדי לעדכן אותו,
+            וללחוץ על מילים כדי לתקן אותן.
           </p>
           <TranscriptPlayer
             transcriptData={segments}

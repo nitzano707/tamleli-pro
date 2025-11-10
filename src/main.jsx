@@ -2,6 +2,10 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import "./index.css";
 import UploadBox from "./components/upload/UploadBox";
+import { GoogleOAuthProvider } from "@react-oauth/google";
+
+// ✅ הוסף כאן את ה־Client ID שלך מגוגל
+const GOOGLE_CLIENT_ID = "842278999727-vqn91h47phqopgh0hv3ernm7s2e6jbri.apps.googleusercontent.com";
 
 function App() {
   return (
@@ -20,6 +24,11 @@ function App() {
   );
 }
 
-
-
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+// ✅ עטיפת כל האפליקציה ב־GoogleOAuthProvider
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <React.StrictMode>
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <App />
+    </GoogleOAuthProvider>
+  </React.StrictMode>
+);
