@@ -88,3 +88,36 @@ export async function getTranscriptions(userEmail) {
 
   return data;
 }
+
+
+/**
+ * ✏️ עדכון שם התמלול (alias)
+ */
+export async function updateAlias(id, newAlias) {
+  const { data, error } = await supabase
+    .from("transcriptions")
+    .update({ alias: newAlias, updated_at: new Date() })
+    .eq("id", id)
+    .select();
+
+  if (error) {
+    console.error("❌ שגיאה בעדכון שם התמלול:", error);
+    return null;
+  }
+
+  console.log("✅ שם התמלול עודכן:", data[0]);
+  return data[0];
+}
+
+/**
+ * 🗑️ מחיקת רשומת תמלול מה-DB
+ */
+export async function deleteTranscription(id) {
+  const { error } = await supabase.from("transcriptions").delete().eq("id", id);
+  if (error) {
+    console.error("❌ שגיאה במחיקת תמלול מה-DB:", error);
+    return false;
+  }
+  console.log("🗑️ נמחקה רשומת תמלול מה-DB:", id);
+  return true;
+}

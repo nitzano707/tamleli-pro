@@ -233,3 +233,90 @@ export async function uploadTranscriptToDrive(
     throw err;
   }
 }
+
+
+/**
+ * 🗑️ מחיקת קובץ מדרייב לפי מזהה
+ */
+export async function deleteFileFromDrive(fileId, accessToken) {
+  if (!fileId || !accessToken) return;
+  try {
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (res.status === 204) {
+      console.log(`🗑️ קובץ ${fileId} נמחק בהצלחה מדרייב`);
+      return true;
+    } else {
+      console.warn(`⚠️ לא ניתן למחוק את הקובץ ${fileId}:`, res.status);
+      return false;
+    }
+  } catch (err) {
+    console.error("❌ שגיאה במחיקת קובץ מדרייב:", err);
+    return false;
+  }
+}
+
+
+/**
+ * 🧹 בדיקה ומחיקת תת-תיקייה אם היא ריקה
+ */
+export async function deleteFolderIfEmpty(folderId, accessToken) {
+  if (!folderId || !accessToken) return;
+  try {
+    // שלב 1️⃣ — בדוק אם יש קבצים בתיקייה
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q='${folderId}' in parents and trashed=false&fields=files(id)`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const data = await res.json();
+    const hasFiles = data.files && data.files.length > 0;
+
+    // שלב 2️⃣ — אם אין קבצים, מחק את התיקייה עצמה
+    if (!hasFiles) {
+      const del = await fetch(`https://www.googleapis.com/drive/v3/files/${folderId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (del.status === 204) {
+        console.log(`🗑️ נמחקה תת-תיקייה ריקה: ${folderId}`);
+      } else {
+        console.warn(`⚠️ לא ניתן למחוק את התיקייה: ${folderId}`);
+      }
+    } else {
+      console.log(`📁 התיקייה ${folderId} לא ריקה, לא נמחקה.`);
+    }
+  } catch (err) {
+    console.error("❌ שגיאה בבדיקת/מחיקת תיקייה ריקה:", err);
+  }
+}
+
+
+/**
+ * ✏️ שינוי שם תיקייה בדרייב
+ */
+export async function renameDriveFolder(folderId, newName, accessToken) {
+  if (!folderId || !newName || !accessToken) return;
+  try {
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${folderId}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name: newName }),
+    });
+
+    if (res.ok) {
+      console.log(`✅ שם התיקייה בדרייב עודכן ל: ${newName}`);
+      return true;
+    } else {
+      console.warn("⚠️ עדכון שם התיקייה נכשל:", res.status);
+      return false;
+    }
+  } catch (err) {
+    console.error("❌ שגיאה בעדכון שם התיקייה בדרייב:", err);
+    return false;
+  }
+}
