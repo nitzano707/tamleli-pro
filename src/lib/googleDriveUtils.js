@@ -1,20 +1,26 @@
 // 📄 src/lib/googleDriveUtils.js
 // ניהול תיקיות וקבצים ב-Google Drive עבור Tamleli Pro
-// כולל: יצירת תיקיית-על, תתי-תיקיות לפי alias, והעלאת קבצים
+// כולל: יצירת תיקיית-על, תתי-תיקיות לפי alias, והעלאת/עדכון קבצים עם תמיכה בגרסאות
 
 /**
  * 🔍 מצא או צור את תיקיית-העל "Tamleli Pro"
- * @param {string} accessToken - אסימון גישה של המשתמש (Google OAuth)
- * @returns {Promise<string>} folderId
  */
 export async function findOrCreateMainFolder(accessToken) {
+  if (!accessToken) throw new Error("❌ אין טוקן גישה פעיל (accessToken חסר)");
+
   try {
     const searchQuery =
       "name='Tamleli Pro' and mimeType='application/vnd.google-apps.folder' and trashed=false";
+
     const res = await fetch(
-      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(searchQuery)}&fields=files(id,name)`,
+      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
+        searchQuery
+      )}&fields=files(id,name)`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
+
+    if (res.status === 401) throw new Error("401 Unauthorized – יש להתחבר מחדש לחשבון Google");
+
     const data = await res.json();
 
     if (data.files?.length) {
@@ -46,12 +52,9 @@ export async function findOrCreateMainFolder(accessToken) {
 
 /**
  * 📂 צור תת-תיקייה תחת Tamleli Pro עם שם ייחודי (alias + תאריך)
- * @param {string} accessToken - אסימון גישה
- * @param {string} parentId - מזהה תיקיית-העל
- * @param {string} alias - שם התמלול שהמשתמש בחר
- * @returns {Promise<{id: string, name: string}>}
  */
 export async function createSubFolder(accessToken, parentId, alias = "") {
+  if (!accessToken) throw new Error("❌ אין טוקן גישה פעיל");
   try {
     const timeStamp = new Date().toISOString().replace(/[:.]/g, "-");
     const folderName = alias
@@ -71,6 +74,8 @@ export async function createSubFolder(accessToken, parentId, alias = "") {
       }),
     });
 
+    if (res.status === 401) throw new Error("401 Unauthorized – התחבר מחדש לגוגל");
+
     const newFolder = await res.json();
     console.log("📂 נוצרה תת-תיקייה חדשה:", newFolder.id, folderName);
     return { id: newFolder.id, name: folderName };
@@ -82,13 +87,9 @@ export async function createSubFolder(accessToken, parentId, alias = "") {
 
 /**
  * 📤 העלאת קובץ (אודיו/וידאו/טקסט) לתיקייה בדרייב
- * @param {string} accessToken - אסימון גישה
- * @param {string} folderId - מזהה התיקייה בדרייב
- * @param {File|Blob} file - קובץ להעלאה
- * @param {string} mimeType - סוג MIME של הקובץ
- * @returns {Promise<string>} fileId
  */
 export async function uploadFileToFolder(accessToken, folderId, file, mimeType) {
+  if (!accessToken) throw new Error("❌ אין טוקן גישה פעיל");
   try {
     const metadata = {
       name: file.name || "unnamed",
@@ -127,9 +128,7 @@ export async function uploadFileToFolder(accessToken, folderId, file, mimeType) 
 }
 
 /**
- * 🔎 שליפת כל תתי-התקיות תחת Tamleli Pro (לשימוש עתידי במסך 'התמלולים שלי')
- * @param {string} accessToken
- * @returns {Promise<Array<{id: string, name: string}>>}
+ * 🔎 רשימת תתי-תיקיות (לשימוש עתידי במסך 'התמלולים שלי')
  */
 export async function listSubFolders(accessToken) {
   try {
@@ -150,31 +149,87 @@ export async function listSubFolders(accessToken) {
   }
 }
 
-// 📄 העלאת קובץ תמלול (txt/json/docx) לתיקיית תמלול
-export async function uploadTranscriptToDrive(accessToken, folderId, fileName, content, mimeType = "text/plain") {
-  const metadata = {
-    name: fileName,
-    parents: [folderId],
-  };
+/**
+ * 🧩 העלאה או עדכון של קובץ תמלול בדרייב
+ *  - אם קיים קובץ עם אותו שם באותה תיקייה → מבצע PATCH (עדכון)
+ *  - אחרת → יוצר קובץ חדש (POST)
+ */
+export async function uploadTranscriptToDrive(
+  accessToken,
+  folderId,
+  fileName,
+  content,
+  mimeType = "application/json"
+) {
+  if (!accessToken) throw new Error("❌ אין טוקן גישה פעיל");
 
-  const form = new FormData();
-  form.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
-  form.append("file", new Blob([content], { type: mimeType }));
+  try {
+    // 🔍 בדיקה אם קובץ עם אותו שם כבר קיים בתיקייה
+    const query = `name='${fileName}' and '${folderId}' in parents and trashed=false`;
+    const checkRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
+        query
+      )}&fields=files(id,name)`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
 
-  const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${accessToken}` },
-    body: form,
-  });
+    const checkData = await checkRes.json();
+    const existingFile = checkData.files?.[0];
 
-  const data = await res.json();
+    // הכנת גוף הבקשה
+    const metadata = { name: fileName, parents: [folderId], mimeType };
+    const boundary = "-------314159265358979323846";
+    const body =
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
+      JSON.stringify(metadata) +
+      `\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n` +
+      content +
+      `\r\n--${boundary}--`;
 
-  if (!res.ok) {
-    console.error("❌ שגיאה בהעלאת קובץ תמלול ל-Drive:", data);
-    throw new Error("Upload transcript failed");
+    // אם קובץ קיים → PATCH
+    if (existingFile) {
+      console.log("♻️ קובץ קיים – מבצע עדכון (PATCH):", existingFile.id);
+      const res = await fetch(
+        `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=multipart`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": `multipart/related; boundary=${boundary}`,
+          },
+          body,
+        }
+      );
+      if (!res.ok) throw new Error("עדכון קובץ תמלול נכשל");
+      const updated = await res.json();
+      console.log("✅ גרסה חדשה נשמרה באותו קובץ:", updated.id);
+      return updated.id;
+    }
+
+    // אחרת → POST (יצירת קובץ חדש)
+    const res = await fetch(
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": `multipart/related; boundary=${boundary}`,
+        },
+        body,
+      }
+    );
+
+    if (!res.ok) {
+      const text = await res.text();
+      console.error("❌ שגיאה בהעלאת קובץ תמלול ל-Drive:", text);
+      throw new Error("Upload transcript failed");
+    }
+
+    const data = await res.json();
+    console.log("✅ קובץ תמלול חדש נשמר בדרייב:", data.id);
+    return data.id;
+  } catch (err) {
+    console.error("❌ שגיאה בהעלאת/עדכון קובץ תמלול בדרייב:", err);
+    throw err;
   }
-
-  console.log("✅ קובץ תמלול נשמר בדרייב:", data.id);
-  return data.id;
 }
-

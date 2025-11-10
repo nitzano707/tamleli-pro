@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Button } from "../ui/button";
 import TranscriptPlayer from "../player/TranscriptPlayer";
 
@@ -31,6 +31,8 @@ export default function UploadBox({ userEmail = "User", onBackToDashboard }) {
   const [audioUrl, setAudioUrl] = useState("");
   const [recordId, setRecordId] = useState(null);
   const [driveFolderId, setDriveFolderId] = useState(null);
+
+  const audioIdRef = useRef(null); // ✅ שמירה יציבה של מזהה האודיו
 
   // ⚙️ בחירת או גרירת קובץ
   const handleFileSelect = (e) => setFile(e.target.files?.[0] || null);
@@ -84,6 +86,8 @@ export default function UploadBox({ userEmail = "User", onBackToDashboard }) {
         setDriveFolderId(sub.id);
 
         const audioId = await uploadFileToFolder(accessToken, sub.id, file, file.type);
+        audioIdRef.current = audioId; // ✅ שמור לצורך שימוש מאוחר יותר
+
         const row = await createTranscription(userEmail, alias || file.name, sub.id, audioId);
         if (row?.id) setRecordId(row.id);
 
@@ -195,6 +199,7 @@ export default function UploadBox({ userEmail = "User", onBackToDashboard }) {
                   {
                     exported_at: new Date().toISOString(),
                     app: "Tamleli Pro",
+                    audioFileId: audioIdRef.current, // ✅ מזהה קובץ האודיו בדרייב
                     segments: merged,
                   },
                   null,
@@ -222,7 +227,6 @@ export default function UploadBox({ userEmail = "User", onBackToDashboard }) {
             } catch (err) {
               console.error("❌ שגיאה בשמירת קובץ תמלול בדרייב:", err);
             }
-
           }
 
           if (data.status === "FAILED") {
@@ -258,23 +262,6 @@ export default function UploadBox({ userEmail = "User", onBackToDashboard }) {
     return merged;
   };
 
-  // 📄 הורדה / העתקה
-  const downloadFile = (content, filename, type) => {
-    const blob = new Blob([content], { type });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleCopy = () => {
-    const text = segments.map((s) => `${s.speaker}:\n${s.text.trim()}\n`).join("\n");
-    navigator.clipboard.writeText(text);
-    alert("📋 התמלול הועתק ללוח!");
-  };
-
   // 🎨 UI
   return (
     <div className="flex flex-col items-center w-full">
@@ -294,7 +281,6 @@ export default function UploadBox({ userEmail = "User", onBackToDashboard }) {
           🔓 התנתק
         </Button>
       </div>
-
 
       {/* העלאה */}
       <div
@@ -368,7 +354,7 @@ export default function UploadBox({ userEmail = "User", onBackToDashboard }) {
           <p className="text-sm text-gray-500 mb-2 text-center">
             💡 ניתן ללחוץ על משפט כדי לדלג בנגן, ללחוץ פעמיים על שם דובר כדי לעדכן אותו, וללחוץ על מילים כדי לתקן אותן.
           </p>
-          <TranscriptPlayer transcriptData={segments} mediaUrl={audioUrl} onCopy={handleCopy} />
+          <TranscriptPlayer transcriptData={segments} mediaUrl={audioUrl} onCopy={() => {}} />
         </div>
       )}
     </div>

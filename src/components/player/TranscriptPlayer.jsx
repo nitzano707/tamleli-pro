@@ -22,6 +22,7 @@ export default function TranscriptPlayer({
   const [scrollTimeout, setScrollTimeout] = useState(null);
   const [wasPlaying, setWasPlaying] = useState(false);
   const [loading, setLoading] = useState(!!transcriptId);
+  const [driveAudioUrl, setDriveAudioUrl] = useState(mediaUrl || ""); // ✅ חדש
 
   const speakerColors = ["2E74B5", "C0504D", "9BBB59", "8064A2", "4BACC6"];
   const speakerOrder = {};
@@ -50,9 +51,32 @@ export default function TranscriptPlayer({
         if (!res.ok) throw new Error("שגיאה בשליפת תמלול מהדרייב");
         const json = await res.json();
 
+        // ✅ טעינת אודיו מדרייב אם נשמר audioFileId
+        if (json.audioFileId) {
+          try {
+            const token = localStorage.getItem("googleAccessToken");
+            const audioRes = await fetch(
+              `https://www.googleapis.com/drive/v3/files/${json.audioFileId}?alt=media`,
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+            if (audioRes.ok) {
+              const blob = await audioRes.blob();
+              const url = URL.createObjectURL(blob);
+              setDriveAudioUrl(url);
+            } else {
+              console.warn("⚠️ לא ניתן לטעון קובץ אודיו מהדרייב");
+            }
+          } catch (err) {
+            console.error("❌ שגיאה בטעינת האודיו מדרייב:", err);
+          }
+        }
+
+        // ✅ תמיכה במבני JSON שונים
         if (json.edited_transcript) setSegments(json.edited_transcript);
         else if (json.original_transcript) setSegments(json.original_transcript);
         else if (json.segments) setSegments(json.segments);
+        else if (json.output?.transcription?.segments)
+          setSegments(json.output.transcription.segments);
         else if (Array.isArray(json)) setSegments(json);
         else console.warn("⚠️ מבנה קובץ תמלול לא מזוהה:", json);
       } catch (err) {
@@ -181,6 +205,7 @@ export default function TranscriptPlayer({
       const edited = {
         app: "Tamleli Pro",
         exported_at: new Date().toISOString(),
+        audioFileId: prev.audioFileId || null, // ✅ שמירת מזהה האודיו
         edited_transcript: segments,
         versionHistory,
       };
@@ -321,7 +346,7 @@ export default function TranscriptPlayer({
           controls
           onTimeUpdate={handleTimeUpdate}
           className="w-full mb-4 rounded-lg max-h-[500px] bg-black"
-          src={mediaUrl}
+          src={driveAudioUrl || mediaUrl}
         />
       ) : (
         <audio
@@ -329,7 +354,7 @@ export default function TranscriptPlayer({
           controls
           onTimeUpdate={handleTimeUpdate}
           className="w-full mb-4 rounded-lg"
-          src={mediaUrl}
+          src={driveAudioUrl || mediaUrl}
         />
       )}
 
