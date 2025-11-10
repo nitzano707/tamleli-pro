@@ -31,3 +31,9 @@ __pycache__/
 
 # FastAPI uploads (if temporary)
 uploads/
+
+# Vite cache
+.vite/
+
+# Netlify build output
+.netlify/
