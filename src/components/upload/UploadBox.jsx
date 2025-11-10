@@ -14,7 +14,7 @@ import {
   updateTranscriptId,
 } from "../../lib/dbTranscriptions";
 
-// 🧠 מודול נורמליזציה חדש
+// 🧠 מודול נורמליזציה
 import {
   normalizeRunpodOutput,
   mergeConsecutiveBySpeaker,
@@ -38,14 +38,24 @@ export default function UploadBox({ userEmail = "User", onBackToDashboard }) {
   const [recordId, setRecordId] = useState(null);
   const [driveFolderId, setDriveFolderId] = useState(null);
 
-  const audioIdRef = useRef(null); // ✅ שמירה יציבה של מזהה האודיו
+  // מזהים יציבים בין רינדורים
+  const audioIdRef = useRef(null);          // מזהה קובץ המדיה בדרייב
+  const mediaTypeRef = useRef("audio");     // "audio" | "video" לפי הקובץ שנבחר
 
   // ⚙️ בחירת או גרירת קובץ
-  const handleFileSelect = (e) => setFile(e.target.files?.[0] || null);
+  const handleFileSelect = (e) => {
+    const f = e.target.files?.[0] || null;
+    setFile(f);
+    if (f) mediaTypeRef.current = f.type.startsWith("video") ? "video" : "audio";
+  };
+
   const handleDrop = (e) => {
     e.preventDefault();
-    const dropped = e.dataTransfer.files?.[0];
-    if (dropped) setFile(dropped);
+    const f = e.dataTransfer.files?.[0] || null;
+    if (f) {
+      setFile(f);
+      mediaTypeRef.current = f.type.startsWith("video") ? "video" : "audio";
+    }
   };
 
   // 🔐 התנתקות מגוגל
@@ -62,15 +72,12 @@ export default function UploadBox({ userEmail = "User", onBackToDashboard }) {
     setStatus("מעלה קובץ ל־Proxy...");
     setProgress(20);
 
-    // שלב 1️⃣ — העלאה לפרוקסי
+    // 1️⃣ העלאה לפרוקסי
     const formData = new FormData();
     formData.append("file", file);
 
     try {
-      const res = await fetch(`${BASE_URL}/upload`, {
-        method: "POST",
-        body: formData,
-      });
+      const res = await fetch(`${BASE_URL}/upload`, { method: "POST", body: formData });
       if (!res.ok) throw new Error("שגיאה בהעלאה ל-Proxy");
       const data = await res.json();
       const proxyUrl = data.url || data.fileUrl;
@@ -86,47 +93,43 @@ export default function UploadBox({ userEmail = "User", onBackToDashboard }) {
       return;
     }
 
-    // שלב 2️⃣ — ארכוב לדרייב אם יש גישה
+    // 2️⃣ ארכוב לדרייב + יצירת רשומה ב־DB
     try {
       const accessToken = localStorage.getItem("googleAccessToken");
       if (accessToken) {
         const mainFolderId = await findOrCreateMainFolder(accessToken);
-        const sub = await createSubFolder(
-          accessToken,
-          mainFolderId,
-          alias || file.name
-        );
+        const sub = await createSubFolder(accessToken, mainFolderId, alias || file.name);
         setDriveFolderId(sub.id);
 
-        const audioId = await uploadFileToFolder(
-          accessToken,
-          sub.id,
-          file,
-          file.type
-        );
-        audioIdRef.current = audioId; // ✅ שמור לצורך שימוש מאוחר יותר
+        const audioId = await uploadFileToFolder(accessToken, sub.id, file, file.type);
+        audioIdRef.current = audioId;
 
+        // סוג מדיה מחושב פעם אחת ושמור ב-ref
+        const mediaType = mediaTypeRef.current;
+
+        // 🟢 יצירת רשומה במסד (כולל סוג מדיה)
         const row = await createTranscription(
-            userEmail,
-            alias || file.name,
-            sub.id,
-            audioId
-          );
-          if (row?.id) {
-            setRecordId(row.id);
-            // 💾 נשמור מיידית גם בלוקאל כדי שיהיה זמין ל-useEffect מאוחר יותר
-            localStorage.setItem(
-              "lastTranscriptionRecord",
-              JSON.stringify({
-                recordId: row.id,
-                audioId,
-                folderId: sub.id,
-                alias,
-                type: file.type.startsWith("video") ? "video" : "audio",
-              })
-            );
-          }
+          userEmail,
+          alias || file.name,
+          sub.id,
+          audioId,
+          mediaType
+        );
 
+        if (row?.id) {
+          setRecordId(row.id);
+          // שמירה מקומית לשימוש מאוחר יותר (למקרה שה־state עדיין לא עדכני בזמן שמירת התמלול)
+          localStorage.setItem(
+            "lastTranscriptionRecord",
+            JSON.stringify({
+              recordId: row.id,
+              audioId,
+              folderId: sub.id,
+              alias,
+              type: mediaType,
+            })
+          );
+        }
 
         setStatus("✅ הקובץ נשמר בדרייב ונרשם במערכת");
       } else {
@@ -142,13 +145,13 @@ export default function UploadBox({ userEmail = "User", onBackToDashboard }) {
   };
 
   // ⚡ שמירה אוטומטית ראשונית בדרייב לאחר השלמת תמלול
-  // ⚡ שמירה אוטומטית ראשונית בדרייב לאחר השלמת תמלול
   const saveInitialTranscriptToDrive = async (segmentsData) => {
     try {
       const accessToken = localStorage.getItem("googleAccessToken");
       if (!accessToken) return console.warn("⚠️ אין גישה ל-Google Drive");
 
-      const mediaType = file.type.startsWith("video") ? "video" : "audio";
+      const mediaType = mediaTypeRef.current;
+
       const transcriptJson = JSON.stringify(
         {
           app: "Tamleli Pro",
@@ -178,14 +181,14 @@ export default function UploadBox({ userEmail = "User", onBackToDashboard }) {
         "application/json"
       );
 
-      // 🔁 ננסה לוודא ש־recordId קיים גם מה־state וגם מה־localStorage
+      // ודא שיש לנו recordId (מה-state או מה-LocalStorage)
       let effectiveRecordId = recordId;
       if (!effectiveRecordId) {
         const last = JSON.parse(localStorage.getItem("lastTranscriptionRecord") || "{}");
         effectiveRecordId = last.recordId || null;
       }
 
-      // ✅ עדכון במסד הנתונים
+      // עדכון ה־DB
       if (effectiveRecordId && transcriptId) {
         try {
           await updateTranscriptId(effectiveRecordId, transcriptId);
@@ -197,7 +200,7 @@ export default function UploadBox({ userEmail = "User", onBackToDashboard }) {
         console.warn("⚠️ חסרים מזהים לעדכון מסד הנתונים:", { effectiveRecordId, transcriptId });
       }
 
-      // 🧠 שמירה מקומית
+      // שמירה מקומית
       localStorage.setItem("currentTranscriptId", transcriptId);
       localStorage.setItem(
         "lastTranscriptionRecord",
@@ -216,7 +219,6 @@ export default function UploadBox({ userEmail = "User", onBackToDashboard }) {
       console.error("❌ שגיאה בשמירה האוטומטית בדרייב:", err);
     }
   };
-
 
   // 🎧 התחלת תמלול (שולחים את URL מה-Proxy)
   const handleTranscribe = async () => {
@@ -348,10 +350,7 @@ export default function UploadBox({ userEmail = "User", onBackToDashboard }) {
           id="audioInput"
           style={{ display: "none" }}
         />
-        <label
-          htmlFor="audioInput"
-          className="cursor-pointer text-blue-600 underline"
-        >
+        <label htmlFor="audioInput" className="cursor-pointer text-blue-600 underline">
           בחר קובץ מהמחשב
         </label>
 
@@ -359,9 +358,7 @@ export default function UploadBox({ userEmail = "User", onBackToDashboard }) {
 
         {/* אליאס */}
         <div className="mt-4">
-          <label className="block text-gray-700 font-medium mb-1">
-            שם תמלול (אליאס):
-          </label>
+          <label className="block text-gray-700 font-medium mb-1">שם תמלול (אליאס):</label>
           <input
             type="text"
             value={alias}
@@ -372,11 +369,7 @@ export default function UploadBox({ userEmail = "User", onBackToDashboard }) {
         </div>
 
         {!isUploading ? (
-          <Button
-            onClick={handleUpload}
-            className="mt-4"
-            disabled={!!uploadedUrl || !file}
-          >
+          <Button onClick={handleUpload} className="mt-4" disabled={!!uploadedUrl || !file}>
             העלה
           </Button>
         ) : (
@@ -425,14 +418,10 @@ export default function UploadBox({ userEmail = "User", onBackToDashboard }) {
       {/* נגן ותוצאות */}
       {segments.length > 0 && (
         <div className="mt-10 w-full max-w-6xl mx-auto text-right">
-          <p className="text-sm text-gray-500 mb-2 text-center">
-            💡 ניתן ללחוץ על משפט כדי לדלג בנגן, ללחוץ פעמיים על שם דובר כדי לעדכן אותו,
-            וללחוץ על מילים כדי לתקן אותן.
-          </p>
           <TranscriptPlayer
             transcriptData={segments}
             mediaUrl={audioUrl}
-            mediaType={file.type.startsWith("video") ? "video" : "audio"}
+            mediaType={mediaTypeRef.current === "video" ? "video" : "audio"}
           />
         </div>
       )}

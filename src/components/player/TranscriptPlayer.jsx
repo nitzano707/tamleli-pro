@@ -392,9 +392,12 @@ export default function TranscriptPlayer({
 
   return (
     <div className="w-full max-w-6xl mx-auto mt-6 text-right">
-      <p className="text-sm text-gray-500 mb-2">
-        💡 לחיצה על משפט → דילוג בנגן | לחיצה כפולה על שם דובר → שינוי | לחיצה כפולה על מילה → תיקון
-      </p>
+      <p className="text-sm text-gray-500 mb-2 text-center">
+            💡 ניתן ללחוץ על משפט כדי לדלג בנגן, ללחוץ פעמיים על שם דובר כדי לעדכן אותו,
+            וללחוץ על מילים כדי לתקן אותן.
+            <br></br>
+            🔔 לא לשכוח, בסיום ללחוץ על שמירה בדרייב
+          </p>
 
       {effectiveMediaType === "video" ? (
         <video
