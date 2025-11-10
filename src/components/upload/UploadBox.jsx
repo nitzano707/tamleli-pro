@@ -15,13 +15,24 @@ export default function UploadBox() {
   const [progress, setProgress] = useState(0);
   const [jobId, setJobId] = useState("");
   const [segments, setSegments] = useState([]);
-  const [audioUrl, setAudioUrl] = useState("");
+  const [mediaUrl, setMediaUrl] = useState("");
+  const [isVideo, setIsVideo] = useState(false);
 
-  const handleFileSelect = (e) => setFile(e.target.files?.[0] || null);
+  const handleFileSelect = (e) => {
+    const f = e.target.files?.[0];
+    if (f) {
+      setFile(f);
+      setIsVideo(f.type.startsWith("video/"));
+    }
+  };
+
   const handleDrop = (e) => {
     e.preventDefault();
     const dropped = e.dataTransfer.files?.[0];
-    if (dropped) setFile(dropped);
+    if (dropped) {
+      setFile(dropped);
+      setIsVideo(dropped.type.startsWith("video/"));
+    }
   };
 
   // 📤 העלאת קובץ
@@ -39,7 +50,7 @@ export default function UploadBox() {
       if (!res.ok) throw new Error("שגיאה בהעלאה");
       const data = await res.json();
       setUploadedUrl(data.url);
-      setAudioUrl(data.url);
+      setMediaUrl(data.url);
       setStatus("✅ הקובץ הועלה בהצלחה!");
       setProgress(100);
       setSegments([]); // אפס תמלול קודם
@@ -171,7 +182,7 @@ export default function UploadBox() {
     return merged;
   };
 
-  // 📄 הורדות רגילות
+  // 📄 הורדה / העתקה
   const downloadFile = (content, filename, type) => {
     const blob = new Blob([content], { type });
     const url = URL.createObjectURL(blob);
@@ -214,33 +225,34 @@ export default function UploadBox() {
 
   return (
     <div className="flex flex-col items-center w-full">
-      {/* שלב ההעלאה */}
+      {/* העלאת קובץ */}
       <div
         onDrop={handleDrop}
         onDragOver={(e) => e.preventDefault()}
         className="w-full max-w-5xl border-2 border-dashed border-gray-400 rounded-3xl p-10 text-center bg-white hover:bg-gray-50 transition-all duration-300 shadow-sm sm:p-8 md:p-10"
       >
-        <h2 className="text-xl font-semibold mb-3">העלה קובץ אודיו</h2>
+        <h2 className="text-xl font-semibold mb-3">העלה קובץ אודיו או וידאו</h2>
 
-        <input type="file" accept="audio/*" onChange={handleFileSelect} id="audioInput" style={{ display: "none" }} />
-        <label htmlFor="audioInput" className="cursor-pointer text-blue-600 underline">
+        <input
+          type="file"
+          accept="audio/*,video/*"
+          onChange={handleFileSelect}
+          id="mediaInput"
+          style={{ display: "none" }}
+        />
+        <label htmlFor="mediaInput" className="cursor-pointer text-blue-600 underline">
           בחר קובץ מהמחשב
         </label>
 
         {file && <p className="mt-3 text-gray-700">{file.name}</p>}
 
         {!isUploading ? (
-  <Button
-    onClick={handleUpload}
-    className="mt-4"
-    disabled={!!uploadedUrl || !file}
-  >
-    העלה
-  </Button>
-) : (
-  <p className="mt-4 text-gray-600">מעלה קובץ...</p>
-)}
-
+          <Button onClick={handleUpload} className="mt-4" disabled={!!uploadedUrl || !file}>
+            העלה
+          </Button>
+        ) : (
+          <p className="mt-4 text-gray-600">מעלה קובץ...</p>
+        )}
 
         {uploadedUrl && (
           <>
@@ -273,13 +285,19 @@ export default function UploadBox() {
         )}
       </div>
 
-      {/* שלב התמלול */}
+      {/* נגן + תמלול */}
       {segments.length > 0 && (
         <div className="mt-10 w-full max-w-6xl mx-auto text-right">
           <p className="text-sm text-gray-500 mb-2 text-center">
             💡 ניתן ללחוץ על משפט כדי לדלג בנגן, ללחוץ פעמיים על שם דובר כדי לעדכן אותו, וללחוץ על מילים כדי לתקן אותן.
           </p>
-          <TranscriptPlayer transcriptData={segments} audioUrl={audioUrl} onDownload={handleDownload} onCopy={handleCopy} />
+          <TranscriptPlayer
+            transcriptData={segments}
+            mediaUrl={mediaUrl}
+            mediaType={isVideo ? "video" : "audio"}
+            onDownload={handleDownload}
+            onCopy={handleCopy}
+          />
         </div>
       )}
     </div>

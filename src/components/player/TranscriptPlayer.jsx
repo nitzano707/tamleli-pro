@@ -4,12 +4,11 @@ import {
   Packer,
   Paragraph,
   TextRun,
-  HeadingLevel,
   AlignmentType,
 } from "docx";
 import { saveAs } from "file-saver";
 
-export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
+export default function TranscriptPlayer({ mediaUrl, mediaType = "audio", transcriptData = [] }) {
   const audioRef = useRef(null);
   const containerRef = useRef(null);
   const [currentTime, setCurrentTime] = useState(0);
@@ -21,10 +20,7 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
   const [scrollTimeout, setScrollTimeout] = useState(null);
   const [wasPlaying, setWasPlaying] = useState(false);
 
-  // 🎨 צבעים לדוברים
   const speakerColors = ["2E74B5", "C0504D", "9BBB59", "8064A2", "4BACC6"];
-
-  // 🧭 סדר דוברים
   const speakerOrder = {};
   segments.forEach((seg) => {
     if (!speakerOrder[seg.speaker]) {
@@ -32,7 +28,6 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     }
   });
 
-  // עיצוב והזחה לפי צדדים
   const getSpeakerStyle = (speaker) => {
     const index = speakerOrder[speaker] % 2;
     const indent = index === 0 ? 0 : 40;
@@ -40,17 +35,14 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     return { indent, color };
   };
 
-  // עדכון זמן נגן
   const handleTimeUpdate = () => {
     if (audioRef.current) setCurrentTime(audioRef.current.currentTime);
   };
 
-  // פסקה מושמעת
   const activeIndex = segments.findIndex(
     (seg) => currentTime >= (seg.start - 0.3) && currentTime <= seg.end
   );
 
-  // גלילה אוטומטית
   useEffect(() => {
     if (!autoScroll || !containerRef.current) return;
     const lines = containerRef.current.querySelectorAll(".line");
@@ -60,7 +52,6 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     }
   }, [activeIndex, autoScroll]);
 
-  // עצירת גלילה ידנית
   const handleUserScroll = useCallback(() => {
     setAutoScroll(false);
     if (scrollTimeout) clearTimeout(scrollTimeout);
@@ -75,7 +66,6 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     return () => el.removeEventListener("scroll", handleUserScroll);
   }, [handleUserScroll]);
 
-  // שינוי שם דובר
   const handleSpeakerRename = (oldName) => {
     if (audioRef.current) {
       setWasPlaying(!audioRef.current.paused);
@@ -93,7 +83,6 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     if (wasPlaying && audioRef.current) audioRef.current.play();
   };
 
-  // עריכת מילה
   const splitWords = (text) => text.split(/(\s+)/);
 
   const handleWordDoubleClick = (segIndex, wordIndex) => {
@@ -116,7 +105,6 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     if (wasPlaying && audioRef.current) audioRef.current.play();
   };
 
-  // דילוג בנגן
   const handleClick = (time) => {
     if (audioRef.current) {
       audioRef.current.currentTime = time;
@@ -124,7 +112,7 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     }
   };
 
-  // 💾 הורדה JSON
+  // 💾 הורדת JSON
   const handleDownloadCombined = () => {
     const combined = {
       metadata: {
@@ -140,91 +128,61 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     saveAs(blob, "transcript_combined.json");
   };
 
-  // 📝 הורדת Word בעברית תקינה
+  // 📝 הורדת Word בעברית
   const handleDownloadWord = async () => {
-  const RLE = '\u202B';
-  const PDF = '\u202C';
-  
-  const doc = new Document({
-    sections: [
-      {
-        properties: {
-          rightToLeft: true,
-          bidirectional: true,
-        },
-        children: [
-          new Paragraph({
-            alignment: AlignmentType.RIGHT,
-            rightToLeft: true,
-            spacing: {
-              after: 400,
-            },
-            children: [
-              new TextRun({
-                text: "תמלול עם דוברים",
-                bold: true,
-                size: 36,
-                font: {
-                  name: "David",
-                  hint: "eastAsia",
-                },
-                language: {
-                  value: "he-IL",
-                },
-              }),
-            ],
-          }),
-          ...segments.map((seg) => {
-            const colorHex =
-              speakerColors[
-                speakerOrder[seg.speaker] % speakerColors.length
-              ];
-            
-            return new Paragraph({
+    const RLE = "\u202B";
+    const PDF = "\u202C";
+
+    const doc = new Document({
+      sections: [
+        {
+          properties: { rightToLeft: true, bidirectional: true },
+          children: [
+            new Paragraph({
               alignment: AlignmentType.RIGHT,
               rightToLeft: true,
-              spacing: {
-                after: 200,
-              },
               children: [
                 new TextRun({
-                  text: RLE + seg.speaker + ": " + PDF,
+                  text: "תמלול עם דוברים",
                   bold: true,
-                  color: colorHex,
-                  font: {
-                    name: "David",
-                    hint: "eastAsia",
-                  },
-                  size: 28,
-                  language: {
-                    value: "he-IL",
-                  },
-                }),
-                new TextRun({
-                  text: RLE + seg.text + PDF,
-                  bold: false,
-                  color: "000000",
-                  font: {
-                    name: "David",
-                    hint: "eastAsia",
-                  },
-                  size: 24,
-                  language: {
-                    value: "he-IL",
-                  },
+                  size: 36,
+                  font: { name: "David", hint: "eastAsia" },
+                  language: { value: "he-IL" },
                 }),
               ],
-            });
-          }),
-        ],
-      },
-    ],
-  });
-  const blob = await Packer.toBlob(doc);
-  saveAs(blob, "transcript_hebrew.docx");
-};
+            }),
+            ...segments.map((seg) => {
+              const colorHex = speakerColors[speakerOrder[seg.speaker] % speakerColors.length];
+              return new Paragraph({
+                alignment: AlignmentType.RIGHT,
+                rightToLeft: true,
+                children: [
+                  new TextRun({
+                    text: RLE + seg.speaker + ": " + PDF,
+                    bold: true,
+                    color: colorHex,
+                    font: { name: "David", hint: "eastAsia" },
+                    size: 28,
+                    language: { value: "he-IL" },
+                  }),
+                  new TextRun({
+                    text: RLE + seg.text + PDF,
+                    color: "000000",
+                    font: { name: "David", hint: "eastAsia" },
+                    size: 24,
+                    language: { value: "he-IL" },
+                  }),
+                ],
+              });
+            }),
+          ],
+        },
+      ],
+    });
+    const blob = await Packer.toBlob(doc);
+    saveAs(blob, "transcript_hebrew.docx");
+  };
 
-  // ⏱️ פונקציית פורמט זמן hh:mm:ss
   const formatTime = (seconds) => {
     if (seconds == null) return "";
     const h = Math.floor(seconds / 3600).toString().padStart(2, "0");
@@ -233,7 +191,6 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
     return `${h}:${m}:${s}`;
   };
 
-  // 📊 הורדת CSV עם זמן מעוצב
   const handleDownloadCSV = () => {
     if (!segments.length) return;
     const header = ["start_time", "end_time", "speaker", "text"];
@@ -243,9 +200,7 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
       s.speaker,
       `"${s.text.replace(/"/g, '""')}"`,
     ]);
-    const csvContent = [header.join(","), ...rows.map((r) => r.join(","))].join(
-      "\n"
-    );
+    const csvContent = [header.join(","), ...rows.map((r) => r.join(","))].join("\n");
     const blob = new Blob(["\uFEFF" + csvContent], {
       type: "text/csv;charset=utf-8",
     });
@@ -257,18 +212,28 @@ export default function TranscriptPlayer({ audioUrl, transcriptData = [] }) {
 
   return (
     <div className="w-full max-w-6xl mx-auto mt-6 text-right">
-      <p className="text-sm text-gray-500 mb-2 flex items-center gap-1">
+      <p className="text-sm text-gray-500 mb-2">
         💡 ניתן ללחוץ על משפט כדי לדלג בנגן, ללחוץ פעמיים על שם דובר כדי לעדכן אותו,
         וללחוץ פעמיים על מילים כדי לתקן אותן.
       </p>
 
-      <audio
-        ref={audioRef}
-        controls
-        onTimeUpdate={handleTimeUpdate}
-        className="w-full mb-4 rounded-lg"
-        src={audioUrl}
-      ></audio>
+      {mediaType === "video" ? (
+        <video
+          ref={audioRef}
+          controls
+          onTimeUpdate={handleTimeUpdate}
+          className="w-full mb-4 rounded-lg max-h-[500px] bg-black"
+          src={mediaUrl}
+        />
+      ) : (
+        <audio
+          ref={audioRef}
+          controls
+          onTimeUpdate={handleTimeUpdate}
+          className="w-full mb-4 rounded-lg"
+          src={mediaUrl}
+        />
+      )}
 
       <div
         ref={containerRef}
