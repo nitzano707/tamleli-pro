@@ -43,13 +43,13 @@ export default function TranscriptionsList({ userEmail, onOpenTranscription }) {
   };
 
   // 🟢 סטטוס תמלול
-  const renderStatus = (r) => {
-    if (r.transcript_id)
-      return <span className="text-green-600 font-semibold">🟢 מוכן</span>;
-    if (r.audio_id && !r.transcript_id)
-      return <span className="text-yellow-600 font-semibold">🟡 בעיבוד</span>;
-    return <span className="text-gray-500">—</span>;
-  };
+const renderStatus = (r) => {
+if (r.transcript_id)
+return <span className="text-green-600 font-semibold">🟢 מוכן</span>;
+if (r.audio_id && !r.transcript_id)
+return <span className="text-orange-600 font-semibold">🟠 לא נשלח לתמלול</span>;
+return <span className="text-gray-500">—</span>;
+};
 
   // 🎧🎬 אייקון לפי סוג מדיה (ניסיון לזהות גם לפי שם קובץ)
   const renderMediaIcon = (r) => {
