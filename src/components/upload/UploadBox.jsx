@@ -270,6 +270,8 @@ export default function UploadBox({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          user_email: userEmail, // ✅ חובה
+          file_url: fileUrl,     // ✅ אופציונלי — עוזר גם למסלול fallback
           input: {
             engine: "stable-whisper",
             model: "ivrit-ai/whisper-large-v3-turbo-ct2",
@@ -304,7 +306,8 @@ export default function UploadBox({
     if (!jobId) return;
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`${RUNPOD_STATUS_BASE}/${jobId}`);
+        const res = await fetch(`${RUNPOD_STATUS_BASE}/${jobId}?user_email=${encodeURIComponent(userEmail)}`);
+
         if (!res.ok) throw new Error("שגיאה בבדיקת סטטוס");
         const data = await res.json();
 
@@ -326,6 +329,16 @@ export default function UploadBox({
               setSegments(segs);
               console.log("✅ Segments normalized:", segs);
               await saveInitialTranscriptToDrive(segs);
+              // 🪙 רענון יתרה אפקטיבית מיד אחרי סיום תמלול
+              try {
+                await fetch(`${BASE_URL}/effective-balance?user_email=${encodeURIComponent(userEmail)}`);
+                console.log("💰 יתרה עודכנה אוטומטית לאחר סיום תמלול");
+                window.dispatchEvent(new Event("refreshBalance"));
+
+              } catch (balanceErr) {
+                console.warn("⚠️ לא הצלחנו לרענן יתרה:", balanceErr);
+              }
+
             } catch (err) {
               console.error("⚠️ שגיאה בנורמליזציה:", err);
               segs = [{ speaker: "דובר", text: "⚠️ שגיאה בנורמליזציה" }];

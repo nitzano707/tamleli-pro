@@ -1,12 +1,16 @@
 // 📄 src/lib/dbTranscriptions.js
+// ✅ גרסה מעודכנת: פעולות DB מתבצעות דרך השרת המאובטח (Render) במקום ישירות ל־Supabase
+
 import { supabase } from "./supabaseClient";
 
+const PROXY_URL = "https://my-transcribe-proxy.onrender.com";
+
 /**
- * 🟢 יצירת רשומה חדשה בטבלת transcriptions
+ * 🟢 יצירת רשומת תמלול חדשה ב־DB (דרך השרת)
  * @param {string} userEmail - אימייל המשתמש המחובר
- * @param {string} alias - שם התמלול שבחר
- * @param {string} folderId - מזהה התיקייה בדרייב
- * @param {string|null} audioId - מזהה קובץ האודיו בדרייב
+ * @param {string} alias - שם התמלול
+ * @param {string} folderId - מזהה תיקייה בדרייב
+ * @param {string|null} audioId - מזהה קובץ אודיו בדרייב
  * @param {string} mediaType - סוג המדיה ("audio" או "video")
  */
 export async function createTranscription(
@@ -17,79 +21,81 @@ export async function createTranscription(
   mediaType = "audio"
 ) {
   try {
-    const { data, error } = await supabase
-      .from("transcriptions")
-      .insert([
-        {
-          user_email: userEmail,
-          alias,
-          folder_id: folderId,
-          audio_id: audioId,
-          media_type: mediaType, // ✅ שמירת סוג המדיה
-        },
-      ])
-      .select();
+    const response = await fetch(`${PROXY_URL}/db/transcriptions/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_email: userEmail,
+        alias,
+        folder_id: folderId,
+        audio_id: audioId,
+        media_type: mediaType,
+      }),
+    });
 
-    if (error) {
-      console.error("❌ שגיאה ביצירת רשומת תמלול:", error);
-      return null;
-    }
-
-    if (!data || !data.length) {
-      console.warn("⚠️ לא הוחזרה רשומת תמלול מ-Supabase:", data);
-      return null;
-    }
-
-    console.log("✅ נוצרה רשומת תמלול:", data[0]);
-    return data[0];
+    const res = await response.json();
+    if (!response.ok) throw new Error(res.error || "שגיאה ביצירת תמלול");
+    console.log("✅ נוצרה רשומת תמלול:", res.data);
+    return res.data?.[0] || null;
   } catch (err) {
-    console.error("❌ שגיאה כללית ביצירת רשומת תמלול:", err);
+    console.error("❌ שגיאה כללית ביצירת תמלול:", err);
     return null;
   }
 }
 
 /**
- * 🟡 עדכון מזהה קובץ האודיו בדרייב
- * @param {string} id - מזהה רשומת התמלול בטבלה
- * @param {string} audioId - מזהה הקובץ בדרייב
+ * 🟡 עדכון רשומת תמלול (כל שדה)
+ * @param {string} id - מזהה רשומת התמלול
+ * @param {object} updates - האובייקט עם העדכונים
+ */
+export async function updateTranscription(id, updates) {
+  try {
+    const response = await fetch(`${PROXY_URL}/db/transcriptions/update`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, updates }),
+    });
+
+    const res = await response.json();
+    if (!response.ok) throw new Error(res.error || "שגיאה בעדכון תמלול");
+    console.log("✅ עודכן תמלול:", res.data?.[0]);
+    return res.data?.[0] || null;
+  } catch (err) {
+    console.error("❌ שגיאה כללית בעדכון תמלול:", err);
+    return null;
+  }
+}
+
+/**
+ * 🔵 עדכון מזהה קובץ האודיו בדרייב
+ * @param {string} id - מזהה רשומה
+ * @param {string} audioId - מזהה קובץ אודיו בדרייב
  */
 export async function updateAudioId(id, audioId) {
-  const { error } = await supabase
-    .from("transcriptions")
-    .update({ audio_id: audioId, updated_at: new Date() })
-    .eq("id", id);
-
-  if (error) console.error("⚠️ שגיאה בעדכון audio_id:", error);
+  return updateTranscription(id, { audio_id: audioId });
 }
 
 /**
  * 🔵 עדכון מזהה קובץ התמלול בדרייב
- * @param {string} id - מזהה רשומת התמלול בטבלה
- * @param {string} transcriptId - מזהה הקובץ בדרייב
+ * @param {string} id - מזהה רשומה
+ * @param {string} transcriptId - מזהה קובץ תמלול בדרייב
  */
 export async function updateTranscriptId(id, transcriptId) {
-  try {
-    const { data, error } = await supabase
-      .from("transcriptions")
-      .update({ transcript_id: transcriptId, updated_at: new Date() })
-      .eq("id", id)
-      .select();
+  return updateTranscription(id, { transcript_id: transcriptId });
+}
 
-    if (error) {
-      console.error("❌ שגיאה בעדכון transcript_id:", error);
-      return null;
-    }
-
-    console.log("✅ עודכן transcript_id ב-Supabase:", data[0]);
-    return data[0];
-  } catch (err) {
-    console.error("❌ שגיאה כללית בעדכון transcript_id:", err);
-    return null;
-  }
+/**
+ * ✏️ עדכון שם התמלול (alias)
+ * @param {string} id - מזהה רשומה
+ * @param {string} newAlias - שם חדש
+ */
+export async function updateAlias(id, newAlias) {
+  return updateTranscription(id, { alias: newAlias });
 }
 
 /**
  * 📋 שליפת כל התמלולים של משתמש
+ * (שליפה ישירה מ-Supabase כי זו פעולה קריאה בלבד)
  * @param {string} userEmail - אימייל המשתמש
  */
 export async function getTranscriptions(userEmail) {
@@ -104,7 +110,6 @@ export async function getTranscriptions(userEmail) {
       console.error("⚠️ שגיאה בשליפת תמלולים:", error);
       return [];
     }
-
     return data || [];
   } catch (err) {
     console.error("❌ שגיאה כללית בשליפת תמלולים:", err);
@@ -113,45 +118,20 @@ export async function getTranscriptions(userEmail) {
 }
 
 /**
- * ✏️ עדכון שם התמלול (alias)
- * @param {string} id - מזהה רשומת התמלול
- * @param {string} newAlias - שם חדש לתמלול
- */
-export async function updateAlias(id, newAlias) {
-  try {
-    const { data, error } = await supabase
-      .from("transcriptions")
-      .update({ alias: newAlias, updated_at: new Date() })
-      .eq("id", id)
-      .select();
-
-    if (error) {
-      console.error("❌ שגיאה בעדכון שם התמלול:", error);
-      return null;
-    }
-
-    console.log("✅ שם התמלול עודכן:", data[0]);
-    return data[0];
-  } catch (err) {
-    console.error("❌ שגיאה כללית בעדכון שם התמלול:", err);
-    return null;
-  }
-}
-
-/**
- * 🗑️ מחיקת רשומת תמלול מה-DB
- * @param {string} id - מזהה רשומת התמלול
+ * 🗑️ מחיקת רשומת תמלול (דרך השרת)
+ * @param {string} id - מזהה רשומת תמלול
  */
 export async function deleteTranscription(id) {
   try {
-    const { error } = await supabase.from("transcriptions").delete().eq("id", id);
+    const response = await fetch(`${PROXY_URL}/db/transcriptions/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
 
-    if (error) {
-      console.error("❌ שגיאה במחיקת תמלול מה-DB:", error);
-      return false;
-    }
-
-    console.log("🗑️ נמחקה רשומת תמלול מה-DB:", id);
+    const res = await response.json();
+    if (!response.ok) throw new Error(res.error || "שגיאה במחיקה");
+    console.log("🗑️ נמחק תמלול:", id);
     return true;
   } catch (err) {
     console.error("❌ שגיאה כללית במחיקת תמלול:", err);
