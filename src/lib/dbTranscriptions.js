@@ -1,4 +1,5 @@
 // 📄 src/lib/dbTranscriptions.js
+
 // ✅ גרסה מעודכנת: פעולות DB מתבצעות דרך השרת המאובטח (Render) במקום ישירות ל־Supabase
 
 import { supabase } from "./supabaseClient";
@@ -35,6 +36,7 @@ export async function createTranscription(
 
     const res = await response.json();
     if (!response.ok) throw new Error(res.error || "שגיאה ביצירת תמלול");
+
     console.log("✅ נוצרה רשומת תמלול:", res.data);
     return res.data?.[0] || null;
   } catch (err) {
@@ -58,6 +60,7 @@ export async function updateTranscription(id, updates) {
 
     const res = await response.json();
     if (!response.ok) throw new Error(res.error || "שגיאה בעדכון תמלול");
+
     console.log("✅ עודכן תמלול:", res.data?.[0]);
     return res.data?.[0] || null;
   } catch (err) {
@@ -110,6 +113,7 @@ export async function getTranscriptions(userEmail) {
       console.error("⚠️ שגיאה בשליפת תמלולים:", error);
       return [];
     }
+
     return data || [];
   } catch (err) {
     console.error("❌ שגיאה כללית בשליפת תמלולים:", err);
@@ -131,6 +135,7 @@ export async function deleteTranscription(id) {
 
     const res = await response.json();
     if (!response.ok) throw new Error(res.error || "שגיאה במחיקה");
+
     console.log("🗑️ נמחק תמלול:", id);
     return true;
   } catch (err) {
