@@ -31,6 +31,7 @@ export default function UploadBox({
   existingRecord = null,
   selectedTranscription,
   setSelectedTranscription, // ✅ חדש
+  effBalance,               // ← ✨ חדש ומאוד חשוב
 }) {
   const [file, setFile] = useState(null);
   const [alias, setAlias] = useState("");
@@ -260,8 +261,7 @@ export default function UploadBox({
         if (!res.ok || !data.url) throw new Error(data.error || "שגיאה בשליפת קובץ מדרייב");
         fileUrl = data.url;
         console.log("✅ קובץ מדרייב נשמר זמנית בשרת ונשלח ל-RunPod:", fileUrl);
-        setAudioUrl(fileUrl); // 🟢 נשמור את כתובת האודיו מהפרוקסי לצורך הנגן
-
+        setAudioUrl(fileUrl);
       }
 
       if (!fileUrl) throw new Error("❌ לא נמצא קובץ לשליחה לתמלול.");
@@ -270,8 +270,8 @@ export default function UploadBox({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_email: userEmail, // ✅ חובה
-          file_url: fileUrl,     // ✅ אופציונלי — עוזר גם למסלול fallback
+          user_email: userEmail,
+          file_url: fileUrl,
           input: {
             engine: "stable-whisper",
             model: "ivrit-ai/whisper-large-v3-turbo-ct2",
@@ -329,12 +329,11 @@ export default function UploadBox({
               setSegments(segs);
               console.log("✅ Segments normalized:", segs);
               await saveInitialTranscriptToDrive(segs);
-              // 🪙 רענון יתרה אפקטיבית מיד אחרי סיום תמלול
+
               try {
                 await fetch(`${BASE_URL}/effective-balance?user_email=${encodeURIComponent(userEmail)}`);
                 console.log("💰 יתרה עודכנה אוטומטית לאחר סיום תמלול");
                 window.dispatchEvent(new Event("refreshBalance"));
-
               } catch (balanceErr) {
                 console.warn("⚠️ לא הצלחנו לרענן יתרה:", balanceErr);
               }
@@ -373,7 +372,11 @@ export default function UploadBox({
         </Button>
       </div>
 
-      <div onDrop={handleDrop} onDragOver={(e) => e.preventDefault()} className="w-full max-w-5xl border-2 border-dashed border-gray-400 rounded-3xl p-10 text-center bg-white hover:bg-gray-50 transition-all duration-300 shadow-sm sm:p-8 md:p-10">
+      <div
+        onDrop={handleDrop}
+        onDragOver={(e) => e.preventDefault()}
+        className="w-full max-w-5xl border-2 border-dashed border-gray-400 rounded-3xl p-10 text-center bg-white hover:bg-gray-50 transition-all duration-300 shadow-sm sm:p-8 md:p-10"
+      >
         <h2 className="text-xl font-semibold mb-3">העלה קובץ אודיו או וידאו</h2>
         <input type="file" accept="audio/*,video/*" onChange={handleFileSelect} id="audioInput" style={{ display: "none" }} />
         <label htmlFor="audioInput" className="cursor-pointer text-blue-600 underline">
@@ -393,9 +396,28 @@ export default function UploadBox({
         </div>
 
         {!isUploading && !existingRecord ? (
-          <Button onClick={handleUpload} className="mt-4" disabled={!!uploadedUrl || !file}>
-            העלה
-          </Button>
+          <>
+            <Button
+              onClick={handleUpload}
+              className="mt-4"
+              disabled={!file || effBalance <= 0}
+              title={effBalance <= 0 ? "אין יתרה זמינה — לא ניתן להעלות קובץ חדש" : ""}
+            >
+              העלה
+            </Button>
+
+            {effBalance <= 0 && (
+              <div className="mt-2 text-red-600 text-sm">
+                ⚠️ אין יתרה זמינה להעלאת קבצים.
+                <button
+                  onClick={() => window.dispatchEvent(new Event("openTokenSetup"))}
+                  className="text-blue-700 underline ml-1"
+                >
+                  הזן טוקן →
+                </button>
+              </div>
+            )}
+          </>
         ) : existingRecord ? (
           <p className="mt-4 text-gray-600">✅ קובץ זה כבר נשמר בדרייב. ניתן כעת לתמלל אותו.</p>
         ) : (
@@ -411,9 +433,26 @@ export default function UploadBox({
               </a>
             </div>
 
-            <Button onClick={handleTranscribe} className="mt-4 bg-green-600 hover:bg-green-700" disabled={isTranscribing || segments.length > 0}>
+            <Button
+              onClick={handleTranscribe}
+              className="mt-4 bg-green-600 hover:bg-green-700"
+              disabled={isTranscribing || segments.length > 0 || effBalance <= 0}
+              title={effBalance <= 0 ? "אין יתרה זמינה — לא ניתן לבצע תמלול" : ""}
+            >
               תמלל קובץ זה
             </Button>
+
+            {effBalance <= 0 && (
+              <div className="mt-2 text-red-600 text-sm">
+                ⚠️ אין יתרה זמינה לתמלול.
+                <button
+                  onClick={() => window.dispatchEvent(new Event("openTokenSetup"))}
+                  className="text-blue-700 underline ml-1"
+                >
+                  הזן טוקן →
+                </button>
+              </div>
+            )}
           </>
         )}
 

@@ -8,7 +8,7 @@ import TranscriptPlayer from "./components/player/TranscriptPlayer";
 export default function App() {
   const [hasToken, setHasToken] = useState(false);
   const [checked, setChecked] = useState(false);
-  const [view, setView] = useState("dashboard"); // 'dashboard' | 'upload' | 'player'
+  const [view, setView] = useState("dashboard"); // 'dashboard' | 'upload' | 'player' | 'token'
   const [selectedTranscription, setSelectedTranscription] = useState(null);
 
   // 💰 יתרה אפקטיבית
@@ -19,43 +19,47 @@ export default function App() {
     import.meta.env.VITE_API_BASE || "https://my-transcribe-proxy.onrender.com";
   const userEmail = localStorage.getItem("googleUserEmail") || "User";
 
-  // 🟢 בדיקת מצב המשתמש דרך השרת (במקום קריאה ל-Supabase)
+  // 🟢 בדיקת מצב חשבון בסיסית
   useEffect(() => {
     const checkAccountStatus = async () => {
       if (!userEmail) return;
       try {
         const res = await fetch(
-          `${API_BASE}/effective-balance?user_email=${encodeURIComponent(userEmail)}`
+          `${API_BASE}/effective-balance?user_email=${encodeURIComponent(
+            userEmail
+          )}`
         );
         const data = await res.json();
 
-        if (res.ok) {
-        // תומך גם במחרוזת ("0.490001") וגם במספר
         let bal =
           typeof data.balance === "string"
             ? parseFloat(data.balance)
             : data.balance;
 
         if (!isNaN(bal)) {
-          setEffBalance(bal.toFixed(6));   // מציג 6 ספרות אחרי הנקודה
+          setEffBalance(bal.toFixed(6));
         }
 
         setNeedToken(Boolean(data.need_token));
         setHasToken(!data.need_token);
-      } else {
-        console.error("⚠️ שגיאה בבדיקת חשבון:", data.error || data);
-      }
-
       } catch (err) {
         console.error("❌ שגיאה בבדיקת חשבון:", err);
       } finally {
         setChecked(true);
       }
     };
+
     checkAccountStatus();
   }, [userEmail]);
 
-  // 💰 שליפת יתרה אפקטיבית ורענון חכם
+  // ➕ האזנה לפתיחת מסך הזנת טוקן
+  useEffect(() => {
+    const openToken = () => setView("token");
+    window.addEventListener("openTokenSetup", openToken);
+    return () => window.removeEventListener("openTokenSetup", openToken);
+  }, []);
+
+  // 💰 שליפת יתרה ורענון
   useEffect(() => {
     if (!userEmail) return;
 
@@ -68,7 +72,6 @@ export default function App() {
         );
         const data = await res.json();
 
-        // תמיכה גם במחרוזת וגם במספר
         let bal =
           typeof data.balance === "string"
             ? parseFloat(data.balance)
@@ -79,28 +82,22 @@ export default function App() {
         }
 
         setNeedToken(Boolean(data.need_token));
-
-        if (data.need_token) {
-          setHasToken(false);
-          setView("token");
-        }
+        setHasToken(!data.need_token);
       } catch (err) {
         console.error("⚠️ שגיאה בשליפת יתרה אפקטיבית:", err);
       }
     };
 
-
-    // 🪙 טען יתרה פעם אחת עם פתיחת המסך
     fetchBalance();
 
-    // 🪙 רענון יזום ע"י מודולים אחרים (כמו UploadBox.jsx)
     const handleRefreshBalance = () => fetchBalance();
     window.addEventListener("refreshBalance", handleRefreshBalance);
 
-    return () => window.removeEventListener("refreshBalance", handleRefreshBalance);
+    return () =>
+      window.removeEventListener("refreshBalance", handleRefreshBalance);
   }, [userEmail]);
 
-  // 🕒 תצוגת טעינה בזמן בדיקה
+  // 📌 טעינת נתונים ראשונית
   if (!checked)
     return (
       <div className="flex h-screen items-center justify-center text-gray-600">
@@ -108,27 +105,10 @@ export default function App() {
       </div>
     );
 
-  // 🧭 אם אין טוקן או נגמרה יתרה — מעבר למסך הזנת טוקן
-  if (!hasToken) {
-    return (
-      <div className="relative flex flex-col items-center justify-center min-h-screen bg-gray-50">
-        {/* 💰 הצגת יתרה בפינה גם במסך טוקן */}
-        {effBalance !== null && (
-          <div className="absolute top-3 right-4 bg-white/90 backdrop-blur px-3 py-1.5 rounded-xl shadow text-sm text-gray-800">
-          💰 יתרה: ${Number(effBalance).toFixed(6)}
-
-
-
-          </div>
-        )}
-        <TokenSetup userEmail={userEmail} onTokenSaved={() => setHasToken(true)} />
-      </div>
-    );
-  }
-
-  // 🧭 אם יש טוקן — מציגים את הדשבורד / העלאה / נגן
+  // 🧭 ניתוב התצוגות
   return (
     <div className="relative min-h-screen flex flex-col items-center justify-start p-6 bg-gray-50">
+
       {/* 💰 תצוגת יתרה גלובלית */}
       {effBalance !== null && (
         <div className="fixed top-3 right-4 bg-white/90 backdrop-blur px-3 py-1.5 rounded-xl shadow text-sm text-gray-800 z-50">
@@ -136,19 +116,46 @@ export default function App() {
         </div>
       )}
 
-      {/* דשבורד / העלאה / נגן */}
+      {/* תצוגות */}
       {view === "dashboard" ? (
         <div className="w-full max-w-5xl text-center">
+
           <div className="flex justify-center gap-4 mb-8">
-            <button
-              onClick={() => {
-                setSelectedTranscription(null);
-                setView("upload");
-              }}
-              className="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg"
-            >
-              ⬆️ העלאה חדשה
-            </button>
+
+            {/* ⬆️ כפתור העלאה חדשה – מושבת כשאין יתרה */}
+            {effBalance > 0 ? (
+              <button
+                onClick={() => {
+                  setSelectedTranscription(null);
+                  setView("upload");
+                }}
+                className="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg"
+              >
+                ⬆️ העלאה חדשה
+              </button>
+            ) : (
+              <div className="flex flex-col items-center">
+                <button
+                  disabled
+                  className="bg-gray-200 px-4 py-2 rounded-lg opacity-50 cursor-not-allowed"
+                  title="אין יתרה — לא ניתן להעלות קובץ חדש"
+                >
+                  ⬆️ העלאה חדשה
+                </button>
+
+                <div className="mt-2 text-red-600 text-sm">
+                  ⚠️ אין יתרה זמינה להעלאת קבצים.
+                  <button
+                    onClick={() => window.dispatchEvent(new Event("openTokenSetup"))}
+                    className="text-blue-700 underline ml-1"
+                  >
+                    הזן טוקן →
+                  </button>
+                </div>
+              </div>
+            )}
+
+
             <button
               onClick={() => window.dispatchEvent(new Event("logout"))}
               className="bg-red-200 hover:bg-red-300 px-4 py-2 rounded-lg"
@@ -160,7 +167,6 @@ export default function App() {
           <TranscriptionsList
             userEmail={userEmail}
             onOpenTranscription={(record) => {
-              console.log("🟢 תמלול נפתח: ", record);
               setSelectedTranscription(record);
               if (record?.transcript_id) setView("player");
               else setView("upload");
@@ -170,11 +176,13 @@ export default function App() {
       ) : view === "upload" ? (
         <UploadBox
           userEmail={userEmail}
+          effBalance={effBalance} // 👈 חשוב!
           onBackToDashboard={() => setView("dashboard")}
           existingRecord={selectedTranscription || null}
           selectedTranscription={selectedTranscription}
           setSelectedTranscription={setSelectedTranscription}
         />
+
       ) : view === "player" && selectedTranscription ? (
         <div className="w-full max-w-6xl text-center">
           <div className="flex justify-center gap-4 mb-4">
@@ -195,6 +203,16 @@ export default function App() {
             mediaType={selectedTranscription?.media_type || "audio"}
           />
         </div>
+
+      ) : view === "token" ? (
+        <TokenSetup
+          userEmail={userEmail}
+          onTokenSaved={() => {
+            setHasToken(true);
+            setView("dashboard");
+          }}
+        />
+
       ) : null}
     </div>
   );

@@ -29,7 +29,8 @@ export default function TokenSetup({ userEmail, onTokenSaved }) {
           console.warn("⚠️ שגיאה בבדיקת יתרה:", data.error);
           setNeedToken(true);
         } else {
-          setBalance(data.balance ?? 0);
+          setBalance(Number(data.balance) || 0);
+
           setNeedToken(data.need_token ?? false);
         }
       } catch (err) {
