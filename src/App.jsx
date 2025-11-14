@@ -5,10 +5,15 @@ import TokenSetup from "./components/account/TokenSetup";
 import TranscriptionsList from "./components/dashboard/TranscriptionsList";
 import TranscriptPlayer from "./components/player/TranscriptPlayer";
 
-export default function App() {
+// 🆕 ניהול קבוצה
+import GroupManager from "./components/account/GroupManager";
+import { leaveGroup, getMembersForOwner } from "./lib/groupManager";
+
+// 🆕 קבלת user + groupInfo מהפרופס
+export default function App({ user, groupInfo }) {
   const [hasToken, setHasToken] = useState(false);
   const [checked, setChecked] = useState(false);
-  const [view, setView] = useState("dashboard"); // 'dashboard' | 'upload' | 'player' | 'token'
+  const [view, setView] = useState("dashboard"); // 'dashboard' | 'upload' | 'player' | 'token' | 'group'
   const [selectedTranscription, setSelectedTranscription] = useState(null);
 
   // 💰 יתרה אפקטיבית
@@ -18,22 +23,56 @@ export default function App() {
   // 🧑‍💼 תפריט משתמש (dropdown)
   const [showMenu, setShowMenu] = useState(false);
 
+  // 🆕 מספר חברים בקבוצה
+  const [groupMemberCount, setGroupMemberCount] = useState(null);
+
   const API_BASE =
     import.meta.env.VITE_API_BASE || "https://my-transcribe-proxy.onrender.com";
 
-  const userEmail = localStorage.getItem("googleUserEmail") || "User";
+  // 🆕 בחירת המייל שמייצג את המשתמש מבחינת טוקן
+  const tokenEmail =
+    groupInfo?.type === "group" ? groupInfo.ownerEmail : user?.email;
+
+  // 🧩 המייל לתצוגה
+  const userEmail =
+    user?.email || localStorage.getItem("googleUserEmail") || "User";
+
   const userPicture =
     localStorage.getItem("googleUserPicture") ||
     "https://www.gravatar.com/avatar/?d=mp&s=200";
 
+  // 🆕 טוען את מספר חברי הקבוצה (רק אם Owner)
+  useEffect(() => {
+    async function loadMembers() {
+      if (groupInfo?.type === "personal") {
+        const members = await getMembersForOwner(userEmail);
+        setGroupMemberCount((members.length || 0) + 1); // כולל Owner
+      } else {
+        setGroupMemberCount(null);
+      }
+    }
+    loadMembers();
+  }, [groupInfo, userEmail]);
+
+  // 🧮 תווית היתרה (אישי / קבוצתי)
+  const balanceLabel = () => {
+    if (groupInfo?.type === "group") {
+      return "(יתרת קבוצה)";
+    }
+    if (groupInfo?.type === "personal" && groupMemberCount > 1) {
+      return `(יתרת קבוצתית — ${groupMemberCount} משתמשים)`;
+    }
+    return "(יתרה אישית)";
+  };
+
   // 🧮 פונקציה פנימית לשליפת יתרה
   const fetchBalance = async () => {
-    if (!userEmail) return;
+    if (!tokenEmail) return;
 
     try {
       const res = await fetch(
         `${API_BASE}/effective-balance?user_email=${encodeURIComponent(
-          userEmail
+          tokenEmail
         )}`
       );
       const data = await res.json();
@@ -47,52 +86,52 @@ export default function App() {
         setEffBalance(bal.toFixed(6));
       }
 
+      // 🆕 רענון מספר חברי הקבוצה (Owner בלבד)
+      if (groupInfo?.type === "personal") {
+        const members = await getMembersForOwner(userEmail);
+        setGroupMemberCount((members.length || 0) + 1); // כולל Owner
+      }
+
       setNeedToken(Boolean(data.need_token));
       setHasToken(!data.need_token);
+
     } catch (err) {
       console.error("⚠️ שגיאה בשליפת יתרה אפקטיבית:", err);
     }
   };
 
-  // 🟢 טעינה ראשונית של יתרה + סימון checked
+
+  // 🟢 טעינה ראשונית
   useEffect(() => {
     const init = async () => {
       await fetchBalance();
       setChecked(true);
     };
     init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userEmail]);
+  }, [tokenEmail]);
 
-  // 💰 רענון יתרה אוטומטי כל 30 שניות
+  // 💰 רענון יתרה כל 30 שניות
   useEffect(() => {
-    if (!userEmail) return;
-    const interval = setInterval(() => {
-      fetchBalance();
-    }, 30000);
-
+    if (!tokenEmail) return;
+    const interval = setInterval(fetchBalance, 30000);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userEmail]);
+  }, [tokenEmail]);
 
-  // 💰 רענון יתרה לפי אירוע גלובלי (כשהתמלול מסתיים ב-UploadBox)
+  // 💰 רענון לפי אירוע גלובלי
   useEffect(() => {
-    const handler = () => {
-      fetchBalance();
-    };
+    const handler = () => fetchBalance();
     window.addEventListener("refreshBalance", handler);
     return () => window.removeEventListener("refreshBalance", handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ➕ האזנה לפתיחת מסך הזנת טוקן מבחוץ (UploadBox וכו')
+  // ➕ פתיחת מסך הזנת טוקן מבחוץ
   useEffect(() => {
     const openToken = () => setView("token");
     window.addEventListener("openTokenSetup", openToken);
     return () => window.removeEventListener("openTokenSetup", openToken);
   }, []);
 
-  // ❌ סגירת תפריט המשתמש בלחיצה מחוץ
+  // ❌ סגירת תפריט משתמש בלחיצה מחוץ
   useEffect(() => {
     const handler = (e) => {
       const el = e.target.closest(".user-menu-root");
@@ -102,12 +141,10 @@ export default function App() {
     return () => document.removeEventListener("click", handler);
   }, []);
 
-  // 🚪 ניהול logout גלובלי (לכל המקומות שמשגרים Event('logout'))
+  // 🚪 ניהול logout גלובלי
   useEffect(() => {
     const handleLogout = () => {
-      localStorage.removeItem("googleAccessToken");
-      localStorage.removeItem("googleUserEmail");
-      localStorage.removeItem("googleUserPicture");
+      localStorage.clear();
       window.location.href = "/";
     };
     window.addEventListener("logout", handleLogout);
@@ -122,14 +159,17 @@ export default function App() {
       </div>
     );
 
-  // 🧭 ניתוב התצוגות
+  // 🧭 ניתוב התצוגה
   return (
     <div className="relative min-h-screen flex flex-col items-center justify-start p-6 bg-gray-50">
 
-      {/* 🧑‍💼 תפריט משתמש מעוצב בפינה הימנית-עליונה */}
+      {/* 🧑‍💼 תפריט משתמש בפינה */}  
       {effBalance !== null && (
-        <div className="fixed top-3 right-4 z-50 user-menu-root">
-          {/* כפתור העליון (avatar + מייל + יתרה) */}
+        <div
+          key={`${effBalance}-${groupInfo?.type}-${groupMemberCount}`}
+          className="fixed top-3 right-4 z-50 user-menu-root"
+        >
+
           <div
             className="flex items-center gap-3 bg-white/90 hover:bg-white px-3 py-1.5 rounded-xl shadow cursor-pointer transition select-none"
             onClick={(e) => {
@@ -147,18 +187,29 @@ export default function App() {
               <span className="text-xs text-gray-600 truncate max-w-[180px]">
                 {userEmail}
               </span>
+
               <span className="font-semibold text-gray-900">
                 💰 {effBalance}$
+                <span className="text-xs text-blue-600 ml-1">
+                  {balanceLabel()}
+                </span>
               </span>
             </div>
           </div>
 
-          {/* Dropdown תפריט */}
           {showMenu && (
             <div className="absolute top-14 right-0 w-56 bg-white rounded-xl shadow-xl border border-gray-200 p-2 text-right animate-fade">
+
               <div className="px-3 py-2 text-xs text-gray-500 border-b truncate">
                 {userEmail}
               </div>
+
+              {/* 🫂 סטטוס קבוצה */}
+              {groupInfo?.type === "group" && (
+                <div className="px-3 py-2 text-sm text-blue-600 border-b">
+                  מנוהל ע"י: {groupInfo.ownerEmail}
+                </div>
+              )}
 
               <button
                 className="w-full text-right px-3 py-2 hover:bg-gray-100 rounded-lg text-gray-800"
@@ -170,6 +221,33 @@ export default function App() {
                 ⚙️ ניהול טוקן
               </button>
 
+              {/* 🆕 Owner בלבד רואה ניהול קבוצה */}
+              {groupInfo?.type === "personal" && (
+                <button
+                  className="w-full text-right px-3 py-2 hover:bg-gray-100 rounded-lg text-gray-800"
+                  onClick={() => {
+                    setView("group");
+                    setShowMenu(false);
+                  }}
+                >
+                  🫂 ניהול קבוצה
+                </button>
+              )}
+
+              {/* 🆕 עזיבת קבוצה (רק לחבר) */}
+              {groupInfo?.type === "group" && (
+                <button
+                  className="w-full text-right px-3 py-2 hover:bg-gray-100 rounded-lg text-red-600"
+                  onClick={async () => {
+                    await leaveGroup(userEmail);
+                    window.location.reload();
+                  }}
+                >
+                  🚪 עזוב קבוצה
+                </button>
+              )}
+
+              {/* Logout */}
               <button
                 className="w-full text-right px-3 py-2 hover:bg-gray-100 rounded-lg text-red-600"
                 onClick={() => {
@@ -183,13 +261,11 @@ export default function App() {
         </div>
       )}
 
-      {/* גוף האפליקציה לפי view */}
+      {/* BODY בהתאם ל-view */}
       {view === "dashboard" ? (
         <div className="w-full max-w-5xl text-center">
 
-          {/* כפתורים עליונים במסך הראשי */}
           <div className="flex justify-center gap-4 mb-8 mt-4">
-            {/* ⬆️ העלאה חדשה – רק אם יש יתרה חיובית */}
             {effBalance > 0 ? (
               <button
                 onClick={() => {
@@ -205,7 +281,6 @@ export default function App() {
                 <button
                   disabled
                   className="bg-gray-200 px-4 py-2 rounded-lg opacity-50 cursor-not-allowed"
-                  title="אין יתרה — לא ניתן להעלות קובץ חדש"
                 >
                   ⬆️ העלאה חדשה
                 </button>
@@ -221,7 +296,6 @@ export default function App() {
               </div>
             )}
 
-            {/* כפתור התנתקות נוסף (מרכזי) */}
             <button
               onClick={() => window.dispatchEvent(new Event("logout"))}
               className="bg-red-200 hover:bg-red-300 px-4 py-2 rounded-lg"
@@ -230,9 +304,9 @@ export default function App() {
             </button>
           </div>
 
-          {/* רשימת התמלולים */}
           <TranscriptionsList
             userEmail={userEmail}
+            tokenEmail={tokenEmail}
             onOpenTranscription={(record) => {
               setSelectedTranscription(record);
               setView(record?.transcript_id ? "player" : "upload");
@@ -242,6 +316,7 @@ export default function App() {
       ) : view === "upload" ? (
         <UploadBox
           userEmail={userEmail}
+          tokenEmail={tokenEmail}
           effBalance={effBalance}
           onBackToDashboard={() => setView("dashboard")}
           existingRecord={selectedTranscription || null}
@@ -268,7 +343,6 @@ export default function App() {
         </div>
       ) : view === "token" ? (
         <div className="w-full max-w-5xl text-center mt-6">
-          {/* כפתור חזרה למסך הראשי מעל טופס הטוקן */}
           <button
             onClick={() => setView("dashboard")}
             className="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg mb-6"
@@ -277,14 +351,24 @@ export default function App() {
           </button>
 
           <TokenSetup
-            userEmail={userEmail}
+            userEmail={tokenEmail}
             onTokenSaved={() => {
               setHasToken(true);
-              // ריענון יתרה מיד אחרי שמירה
               fetchBalance();
               setView("dashboard");
             }}
           />
+        </div>
+      ) : view === "group" ? (
+        <div className="w-full max-w-5xl text-center mt-6">
+          <button
+            onClick={() => setView("dashboard")}
+            className="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg mb-6"
+          >
+            ⬅️ חזרה למסך הראשי
+          </button>
+
+          <GroupManager ownerEmail={userEmail} />
         </div>
       ) : null}
     </div>
