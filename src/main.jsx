@@ -17,10 +17,18 @@ function Root() {
     if (token && email) setUser({ token, email });
 
     const handleLogout = () => {
-      localStorage.removeItem("googleAccessToken");
-      localStorage.removeItem("googleUserEmail");
+      console.log("🔒 Logout – מנקה את כל ה-localStorage");
+
+      // 🧹 מנקה הכול — כולל כל הסגמנטים המקומיים
+      localStorage.clear();
+
+      // איפוס מצב
       setUser(null);
+
+      // טעינה מחדש כדי לנקות זיכרון ו־state
+      window.location.href = "/";
     };
+
     window.addEventListener("logout", handleLogout);
     return () => window.removeEventListener("logout", handleLogout);
   }, []);
