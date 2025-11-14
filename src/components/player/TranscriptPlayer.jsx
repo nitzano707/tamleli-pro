@@ -21,15 +21,11 @@ export default function TranscriptPlayer({
   const mediaRef = useRef(null);
   const containerRef = useRef(null);
   const hasLoadedMedia = useRef(false);
+  const hasInitialized = useRef(false); // 🔥 flag למניעת טעינה כפולה
   const clickTimer = useRef(null);
   const saveTimeoutRef = useRef(null);
 
   const [segments, setSegments] = useState(
-    Array.isArray(transcriptData) ? transcriptData : []
-  );
-
-  // 🔥 state מקומי לתצוגה - מתעדכן מיד ללא re-render מהנגן
-  const [displaySegments, setDisplaySegments] = useState(
     Array.isArray(transcriptData) ? transcriptData : []
   );
 
@@ -38,8 +34,8 @@ export default function TranscriptPlayer({
   );
 
   const [currentTime, setCurrentTime] = useState(0);
-  const [isEditingWord, setIsEditingWord] = useState(null);
-  const [editingSpeaker, setEditingSpeaker] = useState(null);
+  const [isEditing, setIsEditing] = useState(null);
+  const [editingValue, setEditingValue] = useState("");
   const [speakerNames, setSpeakerNames] = useState({});
   const [autoScroll, setAutoScroll] = useState(true);
   const [scrollTimeout, setScrollTimeout] = useState(null);
@@ -47,27 +43,48 @@ export default function TranscriptPlayer({
   const [loading, setLoading] = useState(!!transcriptId);
   const [driveMediaUrl, setDriveMediaUrl] = useState(mediaUrl || "");
   const [effectiveMediaType, setEffectiveMediaType] = useState(mediaType);
-  const [isSaving, setIsSaving] = useState(false);
 
   // 🎨 צבעים לדוברים
   const speakerColors = ["2E74B5", "C0504D", "9BBB59", "8064A2", "4BACC6"];
   const speakerOrder = {};
-  displaySegments.forEach((seg) => {
+  segments.forEach((seg) => {
     if (!speakerOrder[seg.speaker]) {
       speakerOrder[seg.speaker] = Object.keys(speakerOrder).length;
     }
   });
 
+  // 🔥 מפתח ייחודי ל-localStorage
+  const LOCAL_STORAGE_KEY = `tamleli_segments_${transcriptId || 'temp'}`;
+
   // --------------------------------------------------
-  // 📥 טעינת תמלול מדרייב
+  // 📥 טעינת תמלול מדרייב או localStorage (פעם אחת בלבד)
   // --------------------------------------------------
   useEffect(() => {
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
+
     const loadTranscript = async () => {
+      // אם יש transcriptData, השתמש בו
       if (Array.isArray(transcriptData) && transcriptData.length > 0) {
         setSegments(transcriptData);
-        setDisplaySegments(transcriptData);
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(transcriptData));
         setLoading(false);
         return;
+      }
+
+      // 🔥 נסה לטעון את הסגמנטים מ-localStorage
+      const localData = localStorage.getItem(LOCAL_STORAGE_KEY);
+      let segmentsLoaded = false;
+      
+      if (localData) {
+        try {
+          const parsed = JSON.parse(localData);
+          console.log("✅ טוען סגמנטים מ-localStorage:", parsed.length);
+          setSegments(parsed);
+          segmentsLoaded = true;
+        } catch (e) {
+          console.warn("⚠️ שגיאה בפרסור localStorage");
+        }
       }
 
       if (!transcriptId) {
@@ -75,10 +92,11 @@ export default function TranscriptPlayer({
         return;
       }
 
+      // 🔥 תמיד טען את המדיה והמטא-דאטה מדרייב (גם אם הסגמנטים נטענו מ-localStorage)
       try {
         const token = localStorage.getItem("googleAccessToken");
         if (!token) {
-          toast.error("פג תוקף ההרשאה. היכנס מחדש.");
+          toast.error("פג תוקף ההרשאה. היכנס מחדש.", { duration: 3000 });
           setLoading(false);
           return;
         }
@@ -94,6 +112,7 @@ export default function TranscriptPlayer({
 
         if (json.mediaType) setEffectiveMediaType(json.mediaType);
 
+        // 🔥 טען את המדיה מדרייב
         if (json.audioFileId && !hasLoadedMedia.current) {
           hasLoadedMedia.current = true;
           const mediaRes = await fetch(
@@ -105,47 +124,48 @@ export default function TranscriptPlayer({
             const blob = await mediaRes.blob();
             const url = URL.createObjectURL(blob);
             setDriveMediaUrl(url);
+            console.log("✅ מדיה נטענה מדרייב");
           }
         }
 
-        let loadedSegments = [];
-        if (json.schema_version === 1 && Array.isArray(json.segments)) {
-          loadedSegments = json.segments;
-        } else if (Array.isArray(json.edited_transcript)) {
-          loadedSegments = json.edited_transcript;
-        } else if (Array.isArray(json.segments)) {
-          loadedSegments = json.segments;
-        } else if (json.output?.transcription?.segments) {
-          loadedSegments = mergeConsecutiveBySpeaker(
-            normalizeRunpodOutput(json.output.transcription.segments)
-          );
-        } else if (Array.isArray(json.output)) {
-          loadedSegments = mergeConsecutiveBySpeaker(
-            normalizeRunpodOutput(json.output)
-          );
-        } else {
-          loadedSegments = [];
-        }
+        // 🔥 אם לא טענו סגמנטים מ-localStorage, טען אותם מדרייב
+        if (!segmentsLoaded) {
+          let loadedSegments = [];
+          if (json.schema_version === 1 && Array.isArray(json.segments)) {
+            loadedSegments = json.segments;
+          } else if (Array.isArray(json.edited_transcript)) {
+            loadedSegments = json.edited_transcript;
+          } else if (Array.isArray(json.segments)) {
+            loadedSegments = json.segments;
+          } else if (json.output?.transcription?.segments) {
+            loadedSegments = mergeConsecutiveBySpeaker(
+              normalizeRunpodOutput(json.output.transcription.segments)
+            );
+          } else if (Array.isArray(json.output)) {
+            loadedSegments = mergeConsecutiveBySpeaker(
+              normalizeRunpodOutput(json.output)
+            );
+          } else {
+            loadedSegments = [];
+          }
 
-        setSegments(loadedSegments);
-        setDisplaySegments(loadedSegments);
+          console.log("✅ טוען סגמנטים מדרייב:", loadedSegments.length);
+          setSegments(loadedSegments);
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(loadedSegments));
+        }
       } catch (err) {
         console.error("❌ טעינת תמלול נכשלה:", err);
-        toast.error("שגיאה בטעינת התמלול.");
-        setSegments([]);
-        setDisplaySegments([]);
+        toast.error("שגיאה בטעינת התמלול.", { duration: 3000 });
+        if (!segmentsLoaded) {
+          setSegments([]);
+        }
       } finally {
         setLoading(false);
       }
     };
 
     loadTranscript();
-  }, [transcriptId, transcriptData]);
-
-  // סנכרון displaySegments עם segments
-  useEffect(() => {
-    setDisplaySegments(segments);
-  }, [segments]);
+  }, []);
 
   // --------------------------------------------------
   // ⏱ ניגון – עדכון זמן
@@ -154,7 +174,7 @@ export default function TranscriptPlayer({
     if (mediaRef.current) setCurrentTime(mediaRef.current.currentTime);
   };
 
-  const activeIndex = displaySegments.findIndex(
+  const activeIndex = segments.findIndex(
     (seg) =>
       currentTime >= (seg.start ?? 0) - 0.2 &&
       currentTime <= (seg.end ?? 0)
@@ -185,114 +205,121 @@ export default function TranscriptPlayer({
   }, [handleUserScroll]);
 
   // --------------------------------------------------
-  // 💾 AutoSave עם debounce
+  // 💾 שמירה בדרייב (אסינכרונית ברקע)
   // --------------------------------------------------
-  const autoSave = useCallback(
-    async (updatedSegments) => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
+  const saveToDrive = useCallback(async () => {
+    try {
+      // 🔥 תמיד קרא את הנתונים העדכניים מ-localStorage
+      const localData = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (!localData) {
+        console.warn("⚠️ אין נתונים ב-localStorage לשמירה");
+        return;
       }
 
-      saveTimeoutRef.current = setTimeout(async () => {
+      const currentSegments = JSON.parse(localData);
+
+      const id = transcriptId || localStorage.getItem("currentTranscriptId");
+      if (!id) {
+        console.warn("⚠️ אין transcriptId לשמירה");
+        toast.error("⚠️ אין מזהה תמלול לשמירה", { duration: 2000 });
+        return;
+      }
+
+      const token = localStorage.getItem("googleAccessToken");
+      if (!token) {
+        toast.error("❌ אין הרשאת גישה לדרייב", { duration: 2000 });
+        return;
+      }
+
+      console.log("💾 מתחיל שמירה בדרייב...", { segmentsCount: currentSegments.length });
+
+      const existingRes = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${id}?alt=media`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      let prev = {};
+      if (existingRes.ok) {
         try {
-          setIsSaving(true);
-          
-          const id = transcriptId || localStorage.getItem("currentTranscriptId");
-          if (!id) {
-            console.warn("⚠️ אין transcriptId לשמירה");
-            toast.error("⚠️ אין מזהה תמלול לשמירה", { duration: 2000 });
-            setIsSaving(false);
-            return;
-          }
-
-          const token = localStorage.getItem("googleAccessToken");
-          if (!token) {
-            toast.error("❌ אין הרשאת גישה לדרייב", { duration: 2000 });
-            setIsSaving(false);
-            return;
-          }
-
-          console.log("💾 מתחיל שמירה...", { segmentsCount: updatedSegments.length });
-
-          const existingRes = await fetch(
-            `https://www.googleapis.com/drive/v3/files/${id}?alt=media`,
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
-
-          let prev = {};
-          if (existingRes.ok) {
-            try {
-              prev = await existingRes.json();
-            } catch (e) {
-              console.warn("⚠️ לא הצלחנו לפרסר את הקובץ הקיים", e);
-              prev = {};
-            }
-          }
-
-          const versionHistory = Array.isArray(prev.versionHistory)
-            ? prev.versionHistory
-            : [];
-
-          versionHistory.push({
-            saved_at: new Date().toISOString(),
-            segments_snapshot: updatedSegments,
-          });
-
-          const updatedFile = {
-            app: "Tamleli Pro",
-            schema_version: 1,
-            exported_at: new Date().toISOString(),
-            audioFileId: prev.audioFileId ?? null,
-            mediaType: prev.mediaType || effectiveMediaType,
-            segments: updatedSegments,
-            edited_transcript: updatedSegments,
-            versionHistory,
-          };
-
-          const metadata = {
-            name: prev.name || "Tamleli_Transcript.json",
-            mimeType: "application/json",
-          };
-
-          const boundary = "-------314159265358979323846";
-          const body =
-            `--${boundary}\r\nContent-Type: application/json\r\n\r\n` +
-            JSON.stringify(metadata) +
-            `\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n` +
-            JSON.stringify(updatedFile) +
-            `\r\n--${boundary}--`;
-
-          const saveRes = await fetch(
-            `https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=multipart`,
-            {
-              method: "PATCH",
-              headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": `multipart/related; boundary=${boundary}`,
-              },
-              body,
-            }
-          );
-
-          if (!saveRes.ok) {
-            const errorText = await saveRes.text();
-            console.error("❌ שגיאת שמירה:", errorText);
-            throw new Error("שמירה נכשלה");
-          }
-
-          console.log("✅ נשמר בהצלחה!");
-          toast.success("✅ נשמר בהצלחה!", { duration: 2000 });
-          
-        } catch (err) {
-          console.error("❌ AutoSave:", err);
-          toast.error("❌ שמירה נכשלה: " + err.message, { duration: 3000 });
-        } finally {
-          setIsSaving(false);
+          prev = await existingRes.json();
+        } catch (e) {
+          console.warn("⚠️ לא הצלחנו לפרסר את הקובץ הקיים", e);
+          prev = {};
         }
-      }, 0);
-    },
-    [transcriptId, effectiveMediaType]
-  );
+      }
+
+      const versionHistory = Array.isArray(prev.versionHistory)
+        ? prev.versionHistory
+        : [];
+
+      versionHistory.push({
+        saved_at: new Date().toISOString(),
+        segments_snapshot: currentSegments,
+      });
+
+      const updatedFile = {
+        app: "Tamleli Pro",
+        schema_version: 1,
+        exported_at: new Date().toISOString(),
+        audioFileId: prev.audioFileId ?? null,
+        mediaType: prev.mediaType || effectiveMediaType,
+        segments: currentSegments,
+        edited_transcript: currentSegments,
+        versionHistory,
+      };
+
+      const metadata = {
+        name: prev.name || "Tamleli_Transcript.json",
+        mimeType: "application/json",
+      };
+
+      const boundary = "-------314159265358979323846";
+      const body =
+        `--${boundary}\r\nContent-Type: application/json\r\n\r\n` +
+        JSON.stringify(metadata) +
+        `\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n` +
+        JSON.stringify(updatedFile) +
+        `\r\n--${boundary}--`;
+
+      const saveRes = await fetch(
+        `https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=multipart`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": `multipart/related; boundary=${boundary}`,
+          },
+          body,
+        }
+      );
+
+      if (!saveRes.ok) {
+        const errorText = await saveRes.text();
+        console.error("❌ שגיאת שמירה:", errorText);
+        throw new Error("שמירה נכשלה");
+      }
+
+      console.log("✅ נשמר בדרייב!");
+      toast.success("✅ נשמר בדרייב!", { duration: 2000 });
+      
+    } catch (err) {
+      console.error("❌ שמירה בדרייב נכשלה:", err);
+      toast.error("❌ שמירה נכשלה: " + err.message, { duration: 3000 });
+    }
+  }, [transcriptId, effectiveMediaType, LOCAL_STORAGE_KEY]);
+
+  // --------------------------------------------------
+  // 🔥 טריגר לשמירה בדרייב עם debounce
+  // --------------------------------------------------
+  const triggerDriveSave = useCallback(() => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = setTimeout(() => {
+      saveToDrive();
+    }, 1500);
+  }, [saveToDrive]);
 
   useEffect(() => {
     return () => {
@@ -305,26 +332,39 @@ export default function TranscriptPlayer({
   // --------------------------------------------------
   // ✏️ עריכת שם דובר
   // --------------------------------------------------
-  const startRenameSpeaker = (speaker) => {
-    setEditingSpeaker(speaker);
-  };
-
-  const applyRenameSpeaker = (oldName, newName) => {
-    if (!newName || newName.trim() === oldName) {
-      setEditingSpeaker(null);
-      return;
+  const handleSpeakerRename = (e, oldName) => {
+    e.stopPropagation();
+    
+    if (clickTimer.current) {
+      clearTimeout(clickTimer.current);
+      clickTimer.current = null;
     }
-
-    console.log("🔄 משנה שם דובר:", oldName, "→", newName);
-
-    const updated = displaySegments.map((seg) =>
-      seg.speaker === oldName ? { ...seg, speaker: newName } : seg
-    );
-
-    setDisplaySegments(updated);
-    setSegments(updated);
-    setEditingSpeaker(null);
-    autoSave(updated);
+    
+    if (mediaRef.current) {
+      setWasPlaying(!mediaRef.current.paused);
+      mediaRef.current.pause();
+    }
+    
+    const newName = prompt(`שם חדש עבור ${oldName}:`, speakerNames[oldName] || oldName);
+    
+    if (newName && newName !== oldName) {
+      setSpeakerNames((prev) => ({ ...prev, [oldName]: newName }));
+      
+      const updated = segments.map((seg) =>
+        seg.speaker === oldName ? { ...seg, speaker: newName } : seg
+      );
+      
+      // 🔥 1. שמור ב-localStorage מיד
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+      
+      // 🔥 2. עדכן את ה-UI
+      setSegments(updated);
+      
+      // 🔥 3. הפעל שמירה בדרייב ברקע
+      triggerDriveSave();
+    }
+    
+    if (wasPlaying && mediaRef.current) mediaRef.current.play();
   };
 
   // --------------------------------------------------
@@ -339,25 +379,30 @@ export default function TranscriptPlayer({
       setWasPlaying(!mediaRef.current.paused);
       mediaRef.current.pause();
     }
-    setIsEditingWord({ segIndex, wordIndex });
+    
+    const currentWords = splitWords(segments[segIndex].text);
+    setEditingValue(currentWords[wordIndex]);
+    setIsEditing({ segIndex, wordIndex });
   };
 
   const handleWordChange = (segIndex, wordIndex, newValue) => {
-    console.log("✏️ משנה מילה:", { segIndex, wordIndex, newValue });
-
-    const updated = displaySegments.map((seg, i) => {
+    const updated = segments.map((seg, i) => {
       if (i !== segIndex) return seg;
       const words = splitWords(seg.text);
       words[wordIndex] = newValue;
       return { ...seg, text: words.join("") };
     });
-
-    setDisplaySegments(updated);
-    setSegments(updated);
-    setIsEditingWord(null);
     
-    autoSave(updated);
-
+    // 🔥 1. שמור ב-localStorage מיד
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+    
+    // 🔥 2. עדכן את ה-UI
+    setSegments(updated);
+    setIsEditing(null);
+    
+    // 🔥 3. הפעל שמירה בדרייב ברקע
+    triggerDriveSave();
+    
     if (wasPlaying && mediaRef.current) {
       mediaRef.current.play();
     }
@@ -397,8 +442,8 @@ export default function TranscriptPlayer({
     const combined = {
       metadata: { app: "Tamleli Pro", exported_at: new Date().toISOString() },
       original_transcript: originalSegments,
-      edited_transcript: displaySegments,
-      segments: displaySegments,
+      edited_transcript: segments,
+      segments,
     };
 
     const blob = new Blob([JSON.stringify(combined, null, 2)], {
@@ -409,13 +454,13 @@ export default function TranscriptPlayer({
   };
 
   const handleDownloadCSV = () => {
-    if (!displaySegments.length) {
+    if (!segments.length) {
       toast.error("אין נתונים להורדה", { duration: 2000 });
       return;
     }
 
     const header = ["start_time", "end_time", "speaker", "text"];
-    const rows = displaySegments.map((s) => [
+    const rows = segments.map((s) => [
       formatTime(s.start),
       formatTime(s.end),
       s.speaker,
@@ -451,7 +496,7 @@ export default function TranscriptPlayer({
                 ],
               }),
 
-              ...displaySegments.map((seg) => {
+              ...segments.map((seg) => {
                 const colorHex =
                   speakerColors[speakerOrder[seg.speaker] % speakerColors.length];
 
@@ -493,7 +538,7 @@ export default function TranscriptPlayer({
   if (loading)
     return <p className="text-gray-600 mt-10 text-center">⏳ טוען תמלול...</p>;
 
-  if (!displaySegments?.length)
+  if (!segments?.length)
     return <p className="text-gray-500 mt-10 text-center">⏳ אין נתונים להציג.</p>;
 
   return (
@@ -504,12 +549,6 @@ export default function TranscriptPlayer({
           🎯 <strong>לחיצה רגילה</strong> על שורה כדי לדלג לזמן הזה בניגון.<br />
           💾 <strong>שמירה אוטומטית</strong> מתבצעת 1.5 שניות אחרי כל עריכה.
         </p>
-        
-        {isSaving && (
-          <p className="text-blue-600 font-semibold mt-2 animate-pulse">
-            💾 שומר...
-          </p>
-        )}
       </div>
 
       {effectiveMediaType === "video" ? (
@@ -534,11 +573,12 @@ export default function TranscriptPlayer({
         ref={containerRef}
         className="max-h-[500px] overflow-y-auto border rounded-lg p-4 bg-gray-50 shadow-inner"
       >
-        {displaySegments.map((seg, i) => {
+        {segments.map((seg, i) => {
           const index = speakerOrder[seg.speaker] ?? 0;
           const indent = index % 2 ? 40 : 0;
           const color = speakerColors[index % speakerColors.length];
           const words = splitWords(seg.text);
+          const displaySpeaker = speakerNames[seg.speaker] || seg.speaker || "דובר";
           const isActive = i === activeIndex;
 
           return (
@@ -555,52 +595,29 @@ export default function TranscriptPlayer({
               </div>
 
               {/* 🔊 דובר */}
-              {editingSpeaker === seg.speaker ? (
-                <input
-                  autoFocus
-                  defaultValue={seg.speaker}
-                  className="border-b-2 border-blue-500 outline-none text-sm font-semibold bg-transparent"
-                  onClick={(e) => e.stopPropagation()}
-                  onBlur={(e) =>
-                    applyRenameSpeaker(seg.speaker, e.target.value.trim())
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      applyRenameSpeaker(seg.speaker, e.target.value.trim());
-                    }
-                    if (e.key === "Escape") {
-                      setEditingSpeaker(null);
-                    }
-                  }}
-                />
-              ) : (
-                <span
-                  className="font-semibold text-sm select-none hover:underline"
-                  style={{ color: `#${color}`, cursor: 'text' }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    startRenameSpeaker(seg.speaker);
-                  }}
-                >
-                  {seg.speaker}:
-                </span>
-              )}
+              <span
+                className="font-semibold text-sm cursor-pointer select-none hover:underline"
+                style={{ color: `#${color}` }}
+                onDoubleClick={(e) => handleSpeakerRename(e, seg.speaker)}
+              >
+                {displaySpeaker}:
+              </span>
 
               {/* ✏ מילים */}
               <span> </span>
               {words.map((word, wIndex) => {
                 const editing =
-                  isEditingWord?.segIndex === i &&
-                  isEditingWord?.wordIndex === wIndex;
+                  isEditing?.segIndex === i &&
+                  isEditing?.wordIndex === wIndex;
 
                 return editing ? (
                   <input
-                    key={wIndex}
+                    key={`${i}-${wIndex}-edit`}
                     type="text"
-                    defaultValue={word}
+                    defaultValue={editingValue}
                     autoFocus
                     className="border-b-2 border-green-500 outline-none text-sm mx-1 bg-transparent min-w-[20px]"
-                    style={{ width: `${Math.max(word.length * 8, 20)}px` }}
+                    style={{ width: `${Math.max(editingValue.length * 8, 20)}px` }}
                     onClick={(e) => e.stopPropagation()}
                     onBlur={(e) => {
                       handleWordChange(i, wIndex, e.target.value);
@@ -610,13 +627,13 @@ export default function TranscriptPlayer({
                         handleWordChange(i, wIndex, e.target.value);
                       }
                       if (e.key === "Escape") {
-                        setIsEditingWord(null);
+                        setIsEditing(null);
                       }
                     }}
                   />
                 ) : (
                   <span
-                    key={wIndex}
+                    key={`${i}-${wIndex}`}
                     className="text-gray-800 hover:bg-blue-100 rounded px-0.5 cursor-text transition-colors"
                     onDoubleClick={(e) => handleWordDoubleClick(e, i, wIndex)}
                   >
@@ -645,14 +662,14 @@ export default function TranscriptPlayer({
           📊 הורד CSV
         </button>
 
-      {false && (
-        <button
-          onClick={handleDownloadCombined}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition-colors"
-        >
-          💾 הורד JSON (מקור + ערוך)
-        </button>
-      )}
+        {false && (
+          <button
+            onClick={handleDownloadCombined}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition-colors"
+          >
+            💾 הורד JSON (מקור + ערוך)
+          </button>
+        )}
       </div>
     </div>
   );
