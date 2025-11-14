@@ -44,6 +44,10 @@ export default function TranscriptPlayer({
   const [driveMediaUrl, setDriveMediaUrl] = useState(mediaUrl || "");
   const [effectiveMediaType, setEffectiveMediaType] = useState(mediaType);
 
+  // 🟦 הוספה חדשה — סטטוס שמירה
+  const [saveState, setSaveState] = useState("saved"); 
+  // saved | unsaved | saving | error
+
   // 🎨 צבעים לדוברים
   const speakerColors = ["2E74B5", "C0504D", "9BBB59", "8064A2", "4BACC6"];
   const speakerOrder = {};
@@ -54,7 +58,7 @@ export default function TranscriptPlayer({
   });
 
   // 🔥 מפתח ייחודי ל-localStorage
-  const LOCAL_STORAGE_KEY = `tamleli_segments_${transcriptId || 'temp'}`;
+  const LOCAL_STORAGE_KEY = `tamleli_segments_${transcriptId || "temp"}`;
 
   // --------------------------------------------------
   // 📥 טעינת תמלול מדרייב או localStorage (פעם אחת בלבד)
@@ -75,7 +79,7 @@ export default function TranscriptPlayer({
       // 🔥 נסה לטעון את הסגמנטים מ-localStorage
       const localData = localStorage.getItem(LOCAL_STORAGE_KEY);
       let segmentsLoaded = false;
-      
+
       if (localData) {
         try {
           const parsed = JSON.parse(localData);
@@ -131,6 +135,7 @@ export default function TranscriptPlayer({
         // 🔥 אם לא טענו סגמנטים מ-localStorage, טען אותם מדרייב
         if (!segmentsLoaded) {
           let loadedSegments = [];
+
           if (json.schema_version === 1 && Array.isArray(json.segments)) {
             loadedSegments = json.segments;
           } else if (Array.isArray(json.edited_transcript)) {
@@ -151,7 +156,10 @@ export default function TranscriptPlayer({
 
           console.log("✅ טוען סגמנטים מדרייב:", loadedSegments.length);
           setSegments(loadedSegments);
-          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(loadedSegments));
+          localStorage.setItem(
+            LOCAL_STORAGE_KEY,
+            JSON.stringify(loadedSegments)
+          );
         }
       } catch (err) {
         console.error("❌ טעינת תמלול נכשלה:", err);
@@ -166,7 +174,6 @@ export default function TranscriptPlayer({
 
     loadTranscript();
   }, []);
-
   // --------------------------------------------------
   // ⏱ ניגון – עדכון זמן
   // --------------------------------------------------
@@ -208,11 +215,14 @@ export default function TranscriptPlayer({
   // 💾 שמירה בדרייב (אסינכרונית ברקע)
   // --------------------------------------------------
   const saveToDrive = useCallback(async () => {
+    setSaveState("saving"); // 🆕 הוספה
+
     try {
       // 🔥 תמיד קרא את הנתונים העדכניים מ-localStorage
       const localData = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (!localData) {
         console.warn("⚠️ אין נתונים ב-localStorage לשמירה");
+        setSaveState("error"); // 🆕
         return;
       }
 
@@ -222,12 +232,14 @@ export default function TranscriptPlayer({
       if (!id) {
         console.warn("⚠️ אין transcriptId לשמירה");
         toast.error("⚠️ אין מזהה תמלול לשמירה", { duration: 2000 });
+        setSaveState("error"); // 🆕
         return;
       }
 
       const token = localStorage.getItem("googleAccessToken");
       if (!token) {
         toast.error("❌ אין הרשאת גישה לדרייב", { duration: 2000 });
+        setSaveState("error"); // 🆕
         return;
       }
 
@@ -296,15 +308,18 @@ export default function TranscriptPlayer({
       if (!saveRes.ok) {
         const errorText = await saveRes.text();
         console.error("❌ שגיאת שמירה:", errorText);
+        setSaveState("error"); // 🆕
         throw new Error("שמירה נכשלה");
       }
 
       console.log("✅ נשמר בדרייב!");
       toast.success("✅ נשמר בדרייב!", { duration: 2000 });
-      
+      setSaveState("saved"); // 🆕
+
     } catch (err) {
       console.error("❌ שמירה בדרייב נכשלה:", err);
       toast.error("❌ שמירה נכשלה: " + err.message, { duration: 3000 });
+      setSaveState("error"); // 🆕
     }
   }, [transcriptId, effectiveMediaType, LOCAL_STORAGE_KEY]);
 
@@ -312,6 +327,8 @@ export default function TranscriptPlayer({
   // 🔥 טריגר לשמירה בדרייב עם debounce
   // --------------------------------------------------
   const triggerDriveSave = useCallback(() => {
+    setSaveState("unsaved"); // 🆕 הוספה
+
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
@@ -334,36 +351,40 @@ export default function TranscriptPlayer({
   // --------------------------------------------------
   const handleSpeakerRename = (e, oldName) => {
     e.stopPropagation();
-    
+
     if (clickTimer.current) {
       clearTimeout(clickTimer.current);
       clickTimer.current = null;
     }
-    
+
     if (mediaRef.current) {
       setWasPlaying(!mediaRef.current.paused);
       mediaRef.current.pause();
     }
-    
-    const newName = prompt(`שם חדש עבור ${oldName}:`, speakerNames[oldName] || oldName);
-    
+
+    const newName = prompt(
+      `שם חדש עבור ${oldName}:`,
+      speakerNames[oldName] || oldName
+    );
+
     if (newName && newName !== oldName) {
       setSpeakerNames((prev) => ({ ...prev, [oldName]: newName }));
-      
+
       const updated = segments.map((seg) =>
         seg.speaker === oldName ? { ...seg, speaker: newName } : seg
       );
-      
+
       // 🔥 1. שמור ב-localStorage מיד
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
-      
+
       // 🔥 2. עדכן את ה-UI
       setSegments(updated);
-      
+
       // 🔥 3. הפעל שמירה בדרייב ברקע
+      setSaveState("unsaved"); // 🆕
       triggerDriveSave();
     }
-    
+
     if (wasPlaying && mediaRef.current) mediaRef.current.play();
   };
 
@@ -374,12 +395,12 @@ export default function TranscriptPlayer({
 
   const handleWordDoubleClick = (e, segIndex, wordIndex) => {
     e.stopPropagation();
-    
+
     if (mediaRef.current) {
       setWasPlaying(!mediaRef.current.paused);
       mediaRef.current.pause();
     }
-    
+
     const currentWords = splitWords(segments[segIndex].text);
     setEditingValue(currentWords[wordIndex]);
     setIsEditing({ segIndex, wordIndex });
@@ -392,22 +413,22 @@ export default function TranscriptPlayer({
       words[wordIndex] = newValue;
       return { ...seg, text: words.join("") };
     });
-    
+
     // 🔥 1. שמור ב-localStorage מיד
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
-    
+
     // 🔥 2. עדכן את ה-UI
     setSegments(updated);
     setIsEditing(null);
-    
+
     // 🔥 3. הפעל שמירה בדרייב ברקע
+    setSaveState("unsaved"); // 🆕
     triggerDriveSave();
-    
+
     if (wasPlaying && mediaRef.current) {
       mediaRef.current.play();
     }
   };
-
   // --------------------------------------------------
   // 🕒 מעבר בנגן
   // --------------------------------------------------
@@ -469,7 +490,9 @@ export default function TranscriptPlayer({
 
     const csv = [header.join(","), ...rows.map((r) => r.join(","))].join("\n");
 
-    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob(["\uFEFF" + csv], {
+      type: "text/csv;charset=utf-8",
+    });
     saveAs(blob, "transcript.csv");
     toast.success("📥 הורדת CSV הושלמה!", { duration: 2000 });
   };
@@ -498,7 +521,9 @@ export default function TranscriptPlayer({
 
               ...segments.map((seg) => {
                 const colorHex =
-                  speakerColors[speakerOrder[seg.speaker] % speakerColors.length];
+                  speakerColors[
+                    speakerOrder[seg.speaker] % speakerColors.length
+                  ];
 
                 return new Paragraph({
                   alignment: AlignmentType.RIGHT,
@@ -533,20 +558,51 @@ export default function TranscriptPlayer({
   };
 
   // --------------------------------------------------
-  // 🟡 UI
+  // 🟡 UI — תצוגה
   // --------------------------------------------------
   if (loading)
-    return <p className="text-gray-600 mt-10 text-center">⏳ טוען תמלול...</p>;
+    return (
+      <p className="text-gray-600 mt-10 text-center">⏳ טוען תמלול...</p>
+    );
 
   if (!segments?.length)
-    return <p className="text-gray-500 mt-10 text-center">⏳ אין נתונים להציג.</p>;
+    return (
+      <p className="text-gray-500 mt-10 text-center">⏳ אין נתונים להציג.</p>
+    );
 
   return (
     <div className="w-full max-w-6xl mx-auto mt-6 text-right select-text">
+
+      {/* 🔵🆕 חיווי שמירה — צף בפינה השמאלית העליונה */}
+      <div className="fixed top-3 left-4 z-40 text-sm bg-white/90 px-3 py-1.5 rounded-xl shadow border">
+        {saveState === "saved" && (
+          <span className="text-green-600">✓ כל השינויים נשמרו</span>
+        )}
+        {saveState === "unsaved" && (
+          <span className="text-orange-600">… יש שינויים שלא נשמרו</span>
+        )}
+        {saveState === "saving" && (
+          <span className="text-blue-600 flex items-center gap-2">
+            <span className="animate-spin h-3 w-3 border border-t-transparent border-blue-600 rounded-full"></span>
+            שומר שינויים בדרייב...
+          </span>
+        )}
+        {saveState === "error" && (
+          <span className="text-red-600">
+            ⚠️ שגיאה בשמירה —{" "}
+            <button className="underline" onClick={saveToDrive}>
+              נסה שוב
+            </button>
+          </span>
+        )}
+      </div>
+
       <div className="text-sm text-gray-500 mb-4 text-center">
         <p>
-          💡 <strong>לחיצה כפולה</strong> על דובר או מילה כדי לערוך.<br />
-          🎯 <strong>לחיצה רגילה</strong> על שורה כדי לדלג לזמן הזה בניגון.<br />
+          💡 <strong>לחיצה כפולה</strong> על דובר או מילה כדי לערוך.
+          <br />
+          🎯 <strong>לחיצה רגילה</strong> על שורה כדי לדלג לזמן הזה בניגון.
+          <br />
           💾 <strong>שמירה אוטומטית</strong> מתבצעת 1.5 שניות אחרי כל עריכה.
         </p>
       </div>
@@ -568,7 +624,6 @@ export default function TranscriptPlayer({
           src={driveMediaUrl || mediaUrl}
         />
       )}
-
       <div
         ref={containerRef}
         className="max-h-[500px] overflow-y-auto border rounded-lg p-4 bg-gray-50 shadow-inner"
@@ -578,7 +633,8 @@ export default function TranscriptPlayer({
           const indent = index % 2 ? 40 : 0;
           const color = speakerColors[index % speakerColors.length];
           const words = splitWords(seg.text);
-          const displaySpeaker = speakerNames[seg.speaker] || seg.speaker || "דובר";
+          const displaySpeaker =
+            speakerNames[seg.speaker] || seg.speaker || "דובר";
           const isActive = i === activeIndex;
 
           return (
@@ -587,7 +643,9 @@ export default function TranscriptPlayer({
               onClick={() => handleLineClick(seg.start)}
               style={{ marginRight: indent }}
               className={`line group mb-4 p-3 border rounded-xl shadow-sm transition-all cursor-pointer ${
-                isActive ? "bg-yellow-100 border-yellow-400" : "bg-white hover:bg-gray-50"
+                isActive
+                  ? "bg-yellow-100 border-yellow-400"
+                  : "bg-white hover:bg-gray-50"
               }`}
             >
               <div className="text-xs text-gray-500 mb-1">
@@ -617,7 +675,9 @@ export default function TranscriptPlayer({
                     defaultValue={editingValue}
                     autoFocus
                     className="border-b-2 border-green-500 outline-none text-sm mx-1 bg-transparent min-w-[20px]"
-                    style={{ width: `${Math.max(editingValue.length * 8, 20)}px` }}
+                    style={{
+                      width: `${Math.max(editingValue.length * 8, 20)}px`,
+                    }}
                     onClick={(e) => e.stopPropagation()}
                     onBlur={(e) => {
                       handleWordChange(i, wIndex, e.target.value);
@@ -635,7 +695,9 @@ export default function TranscriptPlayer({
                   <span
                     key={`${i}-${wIndex}`}
                     className="text-gray-800 hover:bg-blue-100 rounded px-0.5 cursor-text transition-colors"
-                    onDoubleClick={(e) => handleWordDoubleClick(e, i, wIndex)}
+                    onDoubleClick={(e) =>
+                      handleWordDoubleClick(e, i, wIndex)
+                    }
                   >
                     {word}
                   </span>
