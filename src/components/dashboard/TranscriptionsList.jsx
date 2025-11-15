@@ -12,11 +12,9 @@ import { supabase } from "../../lib/supabaseClient";
 import {
   deleteFileFromDrive,
   deleteFolderIfEmpty,
-  // ✅ פונקציה לשינוי שם תיקייה בדרייב (ראה הערה למעלה)
   renameDriveFolder,
 } from "../../lib/googleDriveUtils";
 
-// 🎧🎬 אייקונים מודרניים
 import { Headphones, Film } from "lucide-react";
 
 export default function TranscriptionsList({ userEmail, onOpenTranscription }) {
@@ -37,21 +35,37 @@ export default function TranscriptionsList({ userEmail, onOpenTranscription }) {
     load();
   }, [userEmail]);
 
+  // 🔄 רענון אוטומטי — כל 8 שניות
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const data = await getTranscriptions(userEmail);
+      setRecords(data || []);
+    }, 8000); // ⏱ כל 8 שניות
+
+    return () => clearInterval(interval);
+  }, [userEmail]);
+
   const refreshList = async () => {
     const data = await getTranscriptions(userEmail);
     setRecords(data || []);
   };
 
-  // 🟢 סטטוס תמלול
-const renderStatus = (r) => {
-if (r.transcript_id)
-return <span className="text-green-600 font-semibold">🟢 מוכן</span>;
-if (r.audio_id && !r.transcript_id)
-return <span className="text-orange-600 font-semibold">🟠 לא נשלח לתמלול</span>;
-return <span className="text-gray-500">—</span>;
-};
+  // 🟢🟠🔵 סטטוס תמלול
+  const renderStatus = (r) => {
+    if (r.transcript_id)
+      return <span className="text-green-600 font-semibold">🟢 מוכן</span>;
 
-  // 🎧🎬 אייקון לפי סוג מדיה (ניסיון לזהות גם לפי שם קובץ)
+    // ⭐ חדש — תהליך תמלול פעיל
+    if (r.job_id && !r.transcript_id)
+      return <span className="text-blue-600 font-semibold">🔵 נשלח לתמלול (דורש פתיחה להשלמה)</span>;
+
+    if (r.audio_id && !r.transcript_id)
+      return <span className="text-orange-600 font-semibold">🟠 לא נשלח לתמלול</span>;
+
+    return <span className="text-gray-500">—</span>;
+  };
+
+  // 🎧🎬 אייקון לפי סוג מדיה
   const renderMediaIcon = (r) => {
     const alias = (r.alias || "").toLowerCase();
     const isVideo =
@@ -71,7 +85,7 @@ return <span className="text-gray-500">—</span>;
     );
   };
 
-  // ✏️ שמירת שם חדש – DB + שינוי שם התיקייה בדרייב
+  // ✏️ עדכון שם תמלול
   const handleAliasSave = async (record) => {
     const value = newAlias?.trim();
     if (!value) {
@@ -80,17 +94,15 @@ return <span className="text-gray-500">—</span>;
     }
 
     try {
-      // 1) עדכון שם ב-DB
       const updated = await updateAlias(record.id, value);
       if (!updated) throw new Error("DB update failed");
 
-      // 2) שינוי שם התיקייה בדרייב (אם יש folder_id)
       const accessToken = localStorage.getItem("googleAccessToken");
       if (record.folder_id && accessToken) {
         try {
           await renameDriveFolder(accessToken, record.folder_id, value);
         } catch (e) {
-          console.warn("⚠️ שינוי שם תיקייה בדרייב נכשל (נמשיך בכל זאת):", e);
+          console.warn("⚠️ שינוי שם תיקייה בדרייב נכשל:", e);
         }
       }
 
@@ -104,7 +116,7 @@ return <span className="text-gray-500">—</span>;
     }
   };
 
-  // 🗑️ מחיקת תמלול – קבצים + תיקייה אם ריקה + DB
+  // 🗑️ מחיקת תמלול
   const handleDelete = async (record) => {
     const confirmDelete = window.confirm(
       `⚠️ למחוק את התמלול "${record.alias}"?\nזה ימחק לצמיתות את הקבצים מה-Drive ומהמערכת.`
@@ -114,7 +126,6 @@ return <span className="text-gray-500">—</span>;
     try {
       const accessToken = localStorage.getItem("googleAccessToken");
 
-      // קבצי מדיה/תמלול
       if (record.audio_id) {
         await deleteFileFromDrive(record.audio_id, accessToken);
       }
@@ -122,12 +133,10 @@ return <span className="text-gray-500">—</span>;
         await deleteFileFromDrive(record.transcript_id, accessToken);
       }
 
-      // מחיקת תיקייה אם ריקה
       if (record.folder_id) {
         await deleteFolderIfEmpty(record.folder_id, accessToken);
       }
 
-      // מחיקה מה-DB
       const { error } = await supabase
         .from("transcriptions")
         .delete()
@@ -138,11 +147,11 @@ return <span className="text-gray-500">—</span>;
       setRecords((prev) => prev.filter((r) => r.id !== record.id));
     } catch (err) {
       console.error("❌ שגיאה במחיקה:", err);
-      alert("❌ המחיקה נכשלה. נסה שוב מאוחר יותר.");
+      alert("❌ המחיקה נכשלה.");
     }
   };
 
-  // ⏳ טעינה / אין נתונים
+  // ⏳ מצבי טען / אין נתונים
   if (loading)
     return <p className="text-center text-gray-600">⏳ טוען תמלולים...</p>;
 
@@ -179,7 +188,7 @@ return <span className="text-gray-500">—</span>;
                 key={r.id}
                 className="hover:bg-gray-50 transition-all duration-200"
               >
-                {/* ✏️ שם תמלול */}
+                {/* שם תמלול */}
                 <td className="py-2 px-4 border-b">
                   {editingId === r.id ? (
                     <div className="flex items-center gap-2">
@@ -216,14 +225,14 @@ return <span className="text-gray-500">—</span>;
                   )}
                 </td>
 
-                {/* 📅 תאריך */}
+                {/* תאריך */}
                 <td className="py-2 px-4 border-b text-sm text-gray-700">
                   {r.created_at
                     ? new Date(r.created_at).toLocaleString("he-IL")
                     : "—"}
                 </td>
 
-                {/* 🎵/🎬 קובץ מדיה (עם אייקון) */}
+                {/* קובץ מדיה */}
                 <td className="py-2 px-4 border-b text-blue-600 underline text-center">
                   {r.audio_id ? (
                     <a
@@ -239,7 +248,7 @@ return <span className="text-gray-500">—</span>;
                   )}
                 </td>
 
-                {/* 📄 קובץ התמלול */}
+                {/* קובץ תמלול */}
                 <td className="py-2 px-4 border-b text-center">
                   {r.transcript_id ? (
                     <a
@@ -255,12 +264,12 @@ return <span className="text-gray-500">—</span>;
                   )}
                 </td>
 
-                {/* 🔵 סטטוס */}
+                {/* סטטוס */}
                 <td className="py-2 px-4 border-b text-center">
                   {renderStatus(r)}
                 </td>
 
-                {/* ⚙️ פעולות */}
+                {/* פעולות */}
                 <td className="py-2 px-4 border-b text-center">
                   <div className="flex gap-2 justify-center">
                     <Button

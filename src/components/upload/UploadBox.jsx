@@ -50,41 +50,86 @@ export default function UploadBox({
   const audioIdRef = useRef(null);
   const mediaTypeRef = useRef("audio");
 
-  // ✅ טעינת קובץ קיים מהדרייב
-  useEffect(() => {
-    if (existingRecord) {
-      console.log("📦 טוען קובץ קיים מהדרייב:", existingRecord);
-      setAlias(existingRecord.alias || "");
-      setDriveFolderId(existingRecord.folder_id || null);
-      setRecordId(existingRecord.id || null);
-      setStatus("🎵 קובץ נטען מהדרייב. מוכן לשליחה לתמלול.");
+// ✅ טעינת קובץ קיים מהדרייב
+useEffect(() => {
+  const loadExisting = async () => {
+    if (!existingRecord) return;
 
-      if (existingRecord.audio_id) {
-        const driveUrl = `https://drive.google.com/uc?export=download&id=${existingRecord.audio_id}`;
+    console.log("📦 טוען קובץ קיים מהדרייב:", existingRecord);
+    setAlias(existingRecord.alias || "");
+    setDriveFolderId(existingRecord.folder_id || null);
+    setRecordId(existingRecord.id || null);
+    setStatus("🎵 קובץ נטען מהדרייב. מוכן לשליחה לתמלול.");
+
+    const accessToken = localStorage.getItem("googleAccessToken");
+
+    // ⭐ זיהוי סוג המדיה
+    if (existingRecord.media_type)
+      mediaTypeRef.current = existingRecord.media_type;
+
+    // ⭐ יש קובץ אודיו/וידאו בדרייב
+    if (existingRecord.audio_id) {
+      // 📌 זוהי ההתנהגות שהייתה — אבל לא מספיקה במצב תמלול
+      const driveUrl = `https://drive.google.com/uc?export=download&id=${existingRecord.audio_id}`;
+
+      // ⭐ אם זה וידאו — אפשר לנגן מהדרייב ישירות
+      if (mediaTypeRef.current === "video") {
         setAudioUrl(driveUrl);
         setUploadedUrl(driveUrl);
-        audioIdRef.current = existingRecord.audio_id;
+      } else {
+        // ⭐ אם זה אודיו — חובה להביא URL תקין מה-proxy
+        try {
+          const res = await fetch(
+            `${BASE_URL}/fetch-and-store-audio?file_id=${existingRecord.audio_id}`,
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+          );
+          const data = await res.json();
+          if (data.url) {
+            setAudioUrl(data.url);
+            setUploadedUrl(data.url);
+          } else {
+            console.warn("⚠️ fetch-and-store-audio לא החזיר URL");
+          }
+        } catch (err) {
+          console.error("❌ שגיאה בקבלת URL מה-proxy:", err);
+        }
       }
-      if (existingRecord.media_type)
-        mediaTypeRef.current = existingRecord.media_type;
-    }
-  }, [existingRecord]);
 
-  // ⚙️ בחירת קובץ
-  const handleFileSelect = (e) => {
-    const f = e.target.files?.[0] || null;
+      audioIdRef.current = existingRecord.audio_id;
+    }
+
+    // ⭐⭐ החלק הקריטי! — המשך תמלול קיים ⭐⭐
+    if (existingRecord.job_id && !existingRecord.transcript_id) {
+      console.log("🔄 ממשיך תמלול למזהה העבודה:", existingRecord.job_id);
+
+      // ‼️ חשוב: המדיה כבר נטענת למעלה — לכן מוסיפים רק Tracing
+      setJobId(existingRecord.job_id);
+      setIsTranscribing(true);
+      setStatus("📤 ממשיך מעקב אחרי התמלול...");
+      setProgress(30);
+    }
+  };
+
+  loadExisting();
+}, [existingRecord]);
+
+
+// ⚙️ בחירת קובץ
+const handleFileSelect = (e) => {
+  const f = e.target.files?.[0] || null;
+  setFile(f);
+  if (f) mediaTypeRef.current = f.type.startsWith("video") ? "video" : "audio";
+};
+
+const handleDrop = (e) => {
+  e.preventDefault();
+  const f = e.dataTransfer.files?.[0] || null;
+  if (f) {
     setFile(f);
-    if (f) mediaTypeRef.current = f.type.startsWith("video") ? "video" : "audio";
-  };
+    mediaTypeRef.current = f.type.startsWith("video") ? "video" : "audio";
+  }
+};
 
-  const handleDrop = (e) => {
-    e.preventDefault();
-    const f = e.dataTransfer.files?.[0] || null;
-    if (f) {
-      setFile(f);
-      mediaTypeRef.current = f.type.startsWith("video") ? "video" : "audio";
-    }
-  };
 
   // 🔐 התנתקות מגוגל
   const handleLogout = () => {
@@ -288,6 +333,17 @@ export default function UploadBox({
 
       const rpData = await rpRes.json();
       console.log("📦 תגובת RunPod:", rpData);
+      if (rpData?.id && recordId) {
+        await fetch(`${BASE_URL}/db/transcriptions/update-job`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            record_id: recordId,
+            job_id: rpData.id,
+          }),
+        });
+      }
+
 
       if (rpData?.id) {
         setJobId(rpData.id);
