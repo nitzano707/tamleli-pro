@@ -9,11 +9,15 @@ import TranscriptPlayer from "./components/player/TranscriptPlayer";
 import GroupManager from "./components/account/GroupManager";
 import { leaveGroup, getMembersForOwner } from "./lib/groupManager";
 
+// 🆕 אודות
+import About from "./components/about/About";
+
 // 🆕 קבלת user + groupInfo מהפרופס
 export default function App({ user, groupInfo }) {
   const [hasToken, setHasToken] = useState(false);
   const [checked, setChecked] = useState(false);
-  const [view, setView] = useState("dashboard"); // 'dashboard' | 'upload' | 'player' | 'token' | 'group'
+  const [view, setView] = useState("dashboard"); // 'dashboard' | 'upload' | 'player' | 'token' | 'group' | 'about'
+
   const [selectedTranscription, setSelectedTranscription] = useState(null);
 
   // 💰 יתרה אפקטיבית
@@ -89,17 +93,15 @@ export default function App({ user, groupInfo }) {
       // 🆕 רענון מספר חברי הקבוצה (Owner בלבד)
       if (groupInfo?.type === "personal") {
         const members = await getMembersForOwner(userEmail);
-        setGroupMemberCount((members.length || 0) + 1); // כולל Owner
+        setGroupMemberCount((members.length || 0) + 1);
       }
 
       setNeedToken(Boolean(data.need_token));
       setHasToken(!data.need_token);
-
     } catch (err) {
       console.error("⚠️ שגיאה בשליפת יתרה אפקטיבית:", err);
     }
   };
-
 
   // 🟢 טעינה ראשונית
   useEffect(() => {
@@ -163,13 +165,12 @@ export default function App({ user, groupInfo }) {
   return (
     <div className="relative min-h-screen flex flex-col items-center justify-start p-6 bg-gray-50">
 
-      {/* 🧑‍💼 תפריט משתמש בפינה */}  
+      {/* 🧑‍💼 תפריט משתמש בפינה */}
       {effBalance !== null && (
         <div
           key={`${effBalance}-${groupInfo?.type}-${groupMemberCount}`}
           className="fixed top-3 right-4 z-50 user-menu-root"
         >
-
           <div
             className="flex items-center gap-3 bg-white/90 hover:bg-white px-3 py-1.5 rounded-xl shadow cursor-pointer transition select-none"
             onClick={(e) => {
@@ -188,12 +189,59 @@ export default function App({ user, groupInfo }) {
                 {userEmail}
               </span>
 
-              <span className="font-semibold text-gray-900">
-                💰 {effBalance}$
-                <span className="text-xs text-blue-600 ml-1">
-                  {balanceLabel()}
-                </span>
-              </span>
+              {(() => {
+                const bal = parseFloat(effBalance || "0");
+                const credits = (bal * 100).toFixed(2);
+
+                if (bal <= 0) {
+                  return (
+                    <span className="flex flex-col text-right leading-tight">
+                      <span className="font-semibold text-gray-900">
+                        🎟️ קרדיט: 0.00
+                        <span className="text-xs text-blue-600 ml-1">
+                          {balanceLabel()}
+                        </span>
+                      </span>
+
+                      <span className="text-[11px] text-red-600 mt-0.5 flex flex-col">
+                        ❌ אין יתרת קרדיט זמינה לתמלול
+                        <button
+                          onClick={() => setView("token")}
+                          className="text-blue-700 underline mt-0.5 text-[11px]"
+                        >
+                          עבור למסך הזנת טוקן אישי חדש →
+                        </button>
+                      </span>
+                    </span>
+                  );
+                }
+
+                const processingSec = bal / 0.00016;
+                const audioSec = processingSec / 0.08;
+
+                const h = Math.floor(audioSec / 3600);
+                const m = Math.floor((audioSec % 3600) / 60);
+
+                let timeStr = "";
+                if (h > 0) timeStr = `${h} שעות ו־${m} דקות`;
+                else if (m > 0) timeStr = `${m} דקות`;
+                else timeStr = "פחות מדקה";
+
+                return (
+                  <span className="flex flex-col text-right leading-tight">
+                    <span className="font-semibold text-gray-900">
+                      🎟️ קרדיט: {credits}
+                      <span className="text-xs text-blue-600 ml-1">
+                        {balanceLabel()}
+                      </span>
+                    </span>
+
+                    <span className="text-[11px] text-gray-600 mt-0.5">
+                      יתרה זו מספיקה לתמלול מדיה באורך משוער של {timeStr}
+                    </span>
+                  </span>
+                );
+              })()}
             </div>
           </div>
 
@@ -204,13 +252,13 @@ export default function App({ user, groupInfo }) {
                 {userEmail}
               </div>
 
-              {/* 🫂 סטטוס קבוצה */}
               {groupInfo?.type === "group" && (
                 <div className="px-3 py-2 text-sm text-blue-600 border-b">
                   מנוהל ע"י: {groupInfo.ownerEmail}
                 </div>
               )}
 
+              {/* 🔧 הגדרות */}
               <button
                 className="w-full text-right px-3 py-2 hover:bg-gray-100 rounded-lg text-gray-800"
                 onClick={() => {
@@ -221,7 +269,6 @@ export default function App({ user, groupInfo }) {
                 ⚙️ ניהול טוקן
               </button>
 
-              {/* 🆕 Owner בלבד רואה ניהול קבוצה */}
               {groupInfo?.type === "personal" && (
                 <button
                   className="w-full text-right px-3 py-2 hover:bg-gray-100 rounded-lg text-gray-800"
@@ -234,7 +281,6 @@ export default function App({ user, groupInfo }) {
                 </button>
               )}
 
-              {/* 🆕 עזיבת קבוצה (רק לחבר) */}
               {groupInfo?.type === "group" && (
                 <button
                   className="w-full text-right px-3 py-2 hover:bg-gray-100 rounded-lg text-red-600"
@@ -247,7 +293,39 @@ export default function App({ user, groupInfo }) {
                 </button>
               )}
 
-              {/* Logout */}
+              <hr className="my-2 border-gray-200" />
+
+
+              <button
+                className="w-full text-right px-3 py-2 hover:bg-gray-100 rounded-lg text-gray-800"
+                onClick={() => {
+                  window.open(
+                    "https://docs.google.com/forms/d/e/1FAIpQLSeFKwyj-dy-kSv7mmdVPUFnyLuRgBbyFp_YYkhii5tI4XGCSg/viewform",
+                    "_blank"
+                  );
+                  setShowMenu(false);
+                }}
+              >
+                ✉️ שליחת משוב
+              </button>
+
+              <hr className="my-2 border-gray-200" />
+
+
+              {/* ℹ️ אודות */}
+              <button
+                className="w-full text-right px-3 py-2 hover:bg-gray-100 rounded-lg text-gray-800"
+                onClick={() => {
+                  setView("about");
+                  setShowMenu(false);
+                }}
+              >
+                ℹ️ אודות
+              </button>
+
+              <hr className="my-2 border-gray-200" />
+
+              {/* 🚪 התנתקות */}
               <button
                 className="w-full text-right px-3 py-2 hover:bg-gray-100 rounded-lg text-red-600"
                 onClick={() => {
@@ -369,6 +447,17 @@ export default function App({ user, groupInfo }) {
           </button>
 
           <GroupManager ownerEmail={userEmail} />
+        </div>
+      ) : view === "about" ? (
+        <div className="w-full max-w-5xl text-center mt-6">
+          <button
+            onClick={() => setView("dashboard")}
+            className="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg mb-6"
+          >
+            ⬅️ חזרה למסך הראשי
+          </button>
+
+          <About />
         </div>
       ) : null}
     </div>
